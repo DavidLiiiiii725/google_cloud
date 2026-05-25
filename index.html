@@ -1,0 +1,1736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Greenhouse · Operator Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#070a10;            --bg-grad:#0e1320;
+    --panel:#141a26;         --panel-hi:#1d2536;
+    --border:#2a3245;        --border-hi:#3e4c6b;
+    --text:#e7edf9;          --dim:#8593b0;          --label:#a0afcc;
+    --accent:#5cf0ff;        --accent-dim:#2c7a8a;
+    --green:#5fff7a;         --green-dim:#27572c;
+    --amber:#ffd24a;         --amber-dim:#7a5a14;
+    --red:#ff5a4a;           --red-dim:#5a1d18;
+    --purple:#c98bff;
+    --term-bg:#04090b;       --term-text:#5fff7a;
+  }
+  *, *::before, *::after { box-sizing:border-box; }
+  html, body {
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:'VT323', 'Press Start 2P', monospace; font-size:16px;
+    height:100vh; overflow:hidden;
+  }
+  .pixel { font-family:'Press Start 2P', monospace; }
+
+  /* ---------------- Layout ---------------- */
+  #app {
+    display:grid;
+    grid-template-columns: 1fr 360px;
+    grid-template-rows: 44px 1fr 250px;
+    grid-template-areas:
+      "header header"
+      "scene  right"
+      "bottom bottom";
+    height:100vh; gap:6px; padding:6px;
+    background:linear-gradient(180deg, var(--bg) 0%, var(--bg-grad) 100%);
+  }
+
+  /* ---------------- Header ---------------- */
+  #header {
+    grid-area:header; display:flex; align-items:center; gap:14px;
+    padding:0 14px; background:var(--panel);
+    border:2px solid var(--border); border-bottom:3px solid var(--border-hi);
+  }
+  #brand { font-family:'Press Start 2P'; font-size:12px; color:var(--accent);
+           letter-spacing:2px; flex-shrink:0; }
+  #brand::before { content:"▣"; margin-right:8px; color:var(--green); }
+  #status-pill {
+    font-family:'Press Start 2P'; font-size:9px; padding:7px 12px;
+    border:2px solid var(--green-dim); background:#0a1a0e; color:var(--green);
+    letter-spacing:1px;
+  }
+  #status-pill.warn   { border-color:var(--amber); background:#1f1607; color:var(--amber); }
+  #status-pill.crit   { border-color:var(--red);   background:#1f0a07; color:var(--red);  animation:pulse 1s infinite; }
+  #status-pill.cat    { border-color:var(--red);   background:#3a0707; color:#fff; animation:blink 0.5s steps(2) infinite; }
+  @keyframes pulse { 0%,100% { box-shadow:0 0 0 0 currentColor; } 50% { box-shadow:0 0 12px 2px currentColor; } }
+  @keyframes blink { 50% { opacity:0.4; } }
+
+  #meta { margin-left:auto; display:flex; gap:14px; align-items:center;
+          font-family:'Press Start 2P'; font-size:8px; color:var(--dim); }
+  #clock { color:var(--text); }
+  .led { width:8px; height:8px; background:var(--green); display:inline-block;
+         margin-right:6px; vertical-align:middle; box-shadow:0 0 6px var(--green); }
+  .led.off { background:#333; box-shadow:none; }
+
+  /* ---------------- Scene ---------------- */
+  #scene-wrap {
+    grid-area:scene; position:relative; overflow:hidden;
+    background:linear-gradient(180deg, #1a2638 0%, #243b50 60%, #2e4a30 90%);
+    border:2px solid var(--border); border-bottom:3px solid var(--border-hi);
+  }
+  canvas { display:block; width:100%; height:100%;
+           image-rendering:pixelated; image-rendering:-moz-crisp-edges; }
+  .scene-overlay {
+    position:absolute; top:10px; left:10px; right:10px;
+    display:flex; justify-content:space-between; pointer-events:none;
+    font-family:'Press Start 2P'; font-size:8px;
+  }
+  .scene-overlay .tag {
+    background:rgba(0,0,0,0.55); color:var(--accent);
+    padding:5px 8px; border:1px solid var(--border);
+  }
+  #zone-labels {
+    position:absolute; top:50%; left:0; right:0;
+    display:flex; justify-content:space-around; pointer-events:none;
+    transform:translateY(60px); padding:0 60px;
+  }
+  #zone-labels span {
+    font-family:'Press Start 2P'; font-size:7px; color:rgba(255,255,255,0.7);
+    background:rgba(0,0,0,0.55); padding:3px 6px; letter-spacing:1px;
+    border:1px solid rgba(255,255,255,0.15);
+  }
+
+  /* ---------------- Right column ---------------- */
+  #right { grid-area:right; display:flex; flex-direction:column; gap:6px;
+           overflow-y:auto; overflow-x:hidden; min-height:0; }
+  .panel {
+    background:var(--panel); border:2px solid var(--border);
+    border-bottom:3px solid var(--border-hi);
+    padding:10px 12px;
+  }
+  .panel-title {
+    font-family:'Press Start 2P'; font-size:8px; color:var(--accent);
+    letter-spacing:2px; margin:0 0 8px 0; padding-bottom:6px;
+    border-bottom:1px dashed var(--border);
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .panel-title .sub { color:var(--dim); font-size:7px; }
+
+  /* Gauges */
+  .gauges { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; }
+  .gauge {
+    background:#000; border:2px solid #1c2638; padding:6px 5px;
+    text-align:center; position:relative;
+  }
+  .gauge .lbl  { font-family:'Press Start 2P'; font-size:6px; color:var(--dim); letter-spacing:1px; }
+  .gauge .val  { font-family:'VT323'; font-size:22px; color:var(--green); margin-top:1px; }
+  .gauge .unit { font-family:'Press Start 2P'; font-size:5px; color:#557; margin-top:1px; }
+  .gauge.warn  .val { color:var(--amber); }
+  .gauge.crit  .val { color:var(--red); }
+  .gauge.vpd { grid-column:span 3; padding:8px 10px; text-align:left;
+                display:flex; align-items:center; justify-content:space-between;
+                border-color:var(--amber-dim); }
+  .gauge.vpd .val { font-size:28px; color:var(--amber); }
+  .gauge.vpd .stress-label { font-family:'Press Start 2P'; font-size:6px;
+                              color:var(--dim); text-align:right; letter-spacing:1px; line-height:1.6; }
+  .gauge.vpd .stress-label b { color:var(--amber); display:block; font-size:7px; }
+
+  /* Zone health */
+  .zone {
+    display:flex; align-items:center; gap:8px; margin:6px 0;
+    padding:4px 0; border-bottom:1px dashed var(--border);
+  }
+  .zone:last-child { border-bottom:none; }
+  .zone .name  { font-family:'Press Start 2P'; font-size:7px;
+                  width:62px; color:var(--label); letter-spacing:1px; }
+  .zone .bar   { flex:1; display:flex; gap:2px; height:12px; }
+  .zone .bar .seg {
+    flex:1; background:#0a0d14; border:1px solid #1a2030;
+    transition:background 0.2s;
+  }
+  .zone .bar .seg.green { background:var(--green); border-color:var(--green); box-shadow:inset 0 0 2px rgba(255,255,255,0.4); }
+  .zone .bar .seg.amber { background:var(--amber); border-color:var(--amber); }
+  .zone .bar .seg.red   { background:var(--red);   border-color:var(--red); }
+  .zone .pct   { font-family:'Press Start 2P'; font-size:8px;
+                  width:36px; text-align:right; color:var(--text); }
+
+  /* Incident card */
+  #incident-card { display:none; }
+  #incident-card.visible { display:block; }
+  #incident-card.warn { border-color:var(--amber); border-bottom-color:var(--amber); }
+  #incident-card.crit { border-color:var(--red);   border-bottom-color:var(--red);
+                        animation:cardPulse 1.5s ease-in-out infinite; }
+  @keyframes cardPulse { 0%,100% { box-shadow:0 0 0 0 transparent; } 50% { box-shadow:0 0 20px -4px var(--red); } }
+
+  #inc-header { display:flex; justify-content:space-between; align-items:center;
+                font-family:'Press Start 2P'; font-size:8px; margin-bottom:8px; }
+  #inc-sev    { color:var(--red); }
+  #inc-sev.warn { color:var(--amber); }
+  #inc-conf   { color:var(--dim); }
+  .cause-box {
+    background:#000; border:2px solid var(--border); padding:8px 10px;
+    font-family:'VT323'; font-size:16px; line-height:1.3;
+    color:var(--text); margin-bottom:8px; min-height:50px;
+  }
+  .cause-box::before { content:"AI ANALYSIS › "; font-family:'Press Start 2P';
+                       font-size:7px; color:var(--accent); display:block;
+                       margin-bottom:4px; letter-spacing:1px; }
+  .plan-title {
+    font-family:'Press Start 2P'; font-size:7px; color:var(--accent);
+    letter-spacing:1px; margin:6px 0 4px 0;
+  }
+  .plan-list {
+    list-style:none; padding:0; margin:0;
+    background:var(--panel-hi); border:1px solid var(--border);
+    max-height:130px; overflow-y:auto;
+  }
+  .plan-list li {
+    padding:5px 8px; border-bottom:1px dashed var(--border);
+    font-family:'VT323'; font-size:15px; line-height:1.2;
+  }
+  .plan-list li:last-child { border-bottom:none; }
+  .plan-list .tool { font-family:'Press Start 2P'; font-size:7px;
+                      color:var(--accent); letter-spacing:1px; }
+  .plan-list .args { color:var(--dim); margin-left:4px; }
+  .plan-list .rat  { color:var(--label); display:block; margin-top:2px; font-size:13px; }
+
+  /* Countdown */
+  .countdown { margin:10px 0 6px 0; display:none; }
+  .countdown.visible { display:block; }
+  .countdown-row { display:flex; justify-content:space-between; align-items:center;
+                    font-family:'Press Start 2P'; font-size:7px;
+                    margin-bottom:4px; letter-spacing:1px; }
+  .countdown-row .key { color:var(--amber); }
+  .countdown-row .time { color:var(--text); font-size:14px; font-family:'VT323'; }
+  .cd-track {
+    height:14px; background:#000; border:2px solid var(--border); position:relative; overflow:hidden;
+  }
+  .cd-fill {
+    height:100%; background:linear-gradient(90deg, var(--amber), var(--red));
+    transition:width 0.3s linear;
+  }
+  .cd-fill.hitl { background:var(--purple); width:100%; }
+
+  /* Buttons */
+  .row { display:flex; gap:6px; margin-top:8px; }
+  button.px {
+    flex:1; padding:9px 8px;
+    font-family:'Press Start 2P'; font-size:8px; letter-spacing:1.5px;
+    background:var(--panel-hi); color:var(--text);
+    border:2px solid var(--border-hi);
+    cursor:pointer; box-shadow:3px 3px 0 #000;
+    transition:transform 0.05s;
+  }
+  button.px:hover  { background:var(--border); }
+  button.px:active { transform:translate(2px,2px); box-shadow:1px 1px 0 #000; }
+  button.px.approve { background:#0e2818; border-color:var(--green); color:var(--green); }
+  button.px.dismiss { background:#2a0e0a; border-color:var(--red);   color:var(--red); }
+  button.px.stress  { background:#2a1a06; border-color:var(--amber); color:var(--amber); }
+  button.px.reset   { background:#0a1a2a; border-color:var(--accent); color:var(--accent); }
+  button.px:disabled { opacity:0.4; cursor:not-allowed; }
+
+  #incident-empty {
+    text-align:center; padding:12px 4px; color:var(--dim);
+    font-family:'VT323'; font-size:16px;
+  }
+  #incident-empty .pix { font-family:'Press Start 2P'; font-size:8px;
+                          color:var(--green); display:block; margin-bottom:6px;
+                          letter-spacing:1px; }
+
+  /* ---------------- Agent Workflow panel ---------------- */
+  #workflow-panel { display:flex; flex-direction:column; }
+
+  #pipeline-strip {
+    display:flex; align-items:center; gap:2px;
+    padding:8px 6px; margin-bottom:8px;
+    background:linear-gradient(180deg, #0a0d14 0%, #161c28 100%);
+    border:2px solid var(--border);
+  }
+  .pl-stage {
+    display:flex; flex-direction:column; align-items:center;
+    flex-shrink:0; min-width:38px;
+  }
+  .pl-ring {
+    width:22px; height:22px; border-radius:50%;
+    border:2px solid var(--border); background:#000;
+    display:flex; align-items:center; justify-content:center;
+    transition:all 0.25s ease;
+  }
+  .pl-num   { font-family:'Press Start 2P'; font-size:7px; color:var(--dim); transition:color 0.25s; }
+  .pl-label { font-family:'Press Start 2P'; font-size:5px;
+              letter-spacing:0.5px; margin-top:4px;
+              color:var(--dim); transition:color 0.25s; white-space:nowrap; }
+
+  .pl-stage[data-status="running"] .pl-ring  { border-color:var(--amber); background:#221606; animation:plPulse 0.7s ease-in-out infinite; }
+  .pl-stage[data-status="running"] .pl-num   { color:var(--amber); }
+  .pl-stage[data-status="running"] .pl-label { color:var(--amber); }
+  .pl-stage[data-status="done"] .pl-ring     { background:var(--green); border-color:var(--green); box-shadow:0 0 6px var(--green); }
+  .pl-stage[data-status="done"] .pl-num      { color:#000; }
+  .pl-stage[data-status="done"] .pl-label    { color:var(--green); }
+  .pl-stage[data-status="waiting"] .pl-ring  { border-color:var(--purple); background:#1a0f2a; animation:plPulse 1.3s ease-in-out infinite; }
+  .pl-stage[data-status="waiting"] .pl-num   { color:var(--purple); }
+  .pl-stage[data-status="waiting"] .pl-label { color:var(--purple); }
+  .pl-stage[data-status="failed"] .pl-ring,
+  .pl-stage[data-status="dismissed"] .pl-ring{ border-color:var(--red); background:#2a0807; }
+  .pl-stage[data-status="failed"] .pl-num,
+  .pl-stage[data-status="dismissed"] .pl-num { color:var(--red); }
+  .pl-stage[data-status="failed"] .pl-label,
+  .pl-stage[data-status="dismissed"] .pl-label{ color:var(--red); }
+
+  @keyframes plPulse { 0%,100% { box-shadow:0 0 0 currentColor; }
+                       50%    { box-shadow:0 0 14px currentColor; } }
+
+  .pl-arrow {
+    flex:1; min-width:4px; max-width:18px; height:2px;
+    background:var(--border); margin-top:-12px;
+    transition:background 0.25s;
+  }
+  .pl-arrow.active { background:var(--green); box-shadow:0 0 4px var(--green); }
+
+  /* Trace cards */
+  #trace-cards { display:flex; flex-direction:column; gap:5px;
+                  overflow-y:auto; flex:1; min-height:0; max-height:600px; }
+  .trace-empty {
+    text-align:center; padding:14px 6px; color:var(--dim);
+    font-family:'VT323'; font-size:15px; line-height:1.5;
+  }
+  .trace-empty .pix { font-family:'Press Start 2P'; font-size:8px;
+                       color:var(--green); display:block; margin-bottom:6px;
+                       letter-spacing:1px; }
+  .trace-empty b { color:var(--amber); }
+
+  .trace-card {
+    border-left:3px solid var(--border);
+    background:rgba(0,0,0,0.25);
+    padding:6px 8px 7px 10px;
+    transition:all 0.2s;
+  }
+  .trace-card[data-status="running"]  { border-left-color:var(--amber); background:rgba(255,210,74,0.07); }
+  .trace-card[data-status="done"]     { border-left-color:var(--green); }
+  .trace-card[data-status="waiting"]  { border-left-color:var(--purple); background:rgba(201,139,255,0.10);
+                                        animation:cardPulse 1.5s ease-in-out infinite; }
+  .trace-card[data-status="dismissed"]{ border-left-color:var(--red); }
+  .trace-card[data-status="failed"]   { border-left-color:var(--red); background:rgba(255,90,74,0.08); }
+  @keyframes cardPulse { 0%,100% { box-shadow:inset 3px 0 0 transparent; }
+                         50%    { box-shadow:inset 3px 0 0 var(--purple); } }
+
+  .trace-head {
+    display:flex; justify-content:space-between; align-items:center;
+    font-family:'Press Start 2P'; font-size:7px;
+    letter-spacing:1px; color:var(--accent);
+    margin-bottom:3px;
+  }
+  .trace-head .num { color:var(--dim); margin-right:6px;
+                     display:inline-block; min-width:14px; }
+  .trace-head .name { color:var(--accent); }
+  .trace-card[data-status="running"] .trace-head .name { color:var(--amber); }
+  .trace-card[data-status="waiting"] .trace-head .name { color:var(--purple); }
+
+  .trace-badge {
+    font-family:'Press Start 2P'; font-size:6px;
+    padding:2px 5px; letter-spacing:1px;
+    background:#1a1d28; color:var(--dim);
+  }
+  .trace-badge.running  { background:var(--amber-dim); color:var(--amber); }
+  .trace-badge.done     { background:var(--green-dim); color:var(--green); }
+  .trace-badge.waiting  { background:#2a1d44; color:var(--purple); }
+  .trace-badge.dismissed,
+  .trace-badge.failed   { background:var(--red-dim); color:var(--red); }
+
+  .trace-tool { font-family:'VT323'; font-size:12px;
+                color:var(--dim); margin-bottom:4px;
+                border-bottom:1px dashed rgba(255,255,255,0.06); padding-bottom:3px; }
+  .trace-tool::before { content:"→ "; color:var(--dim); }
+  .trace-msg { font-family:'VT323'; font-size:14px;
+               color:var(--text); line-height:1.3; }
+
+  .trace-kv { display:grid; grid-template-columns:80px 1fr; gap:2px 8px;
+              font-family:'VT323'; font-size:13px; margin-top:5px; }
+  .trace-kv .k { color:var(--dim); }
+  .trace-kv .v { color:var(--text); }
+  .trace-kv .v.pos { color:var(--green); }
+  .trace-kv .v.warn { color:var(--amber); }
+  .trace-kv .v.crit { color:var(--red); }
+
+  .trace-anom { font-family:'VT323'; font-size:13px;
+                 background:rgba(0,0,0,0.4); padding:4px 6px;
+                 margin-top:5px; border:1px solid var(--border); }
+  .trace-anom .a-row { display:flex; justify-content:space-between; gap:8px; }
+  .trace-anom .a-name { color:var(--accent); }
+  .trace-anom .a-val { color:var(--text); }
+  .trace-anom .a-sev { color:var(--amber); }
+  .trace-anom .a-sev.critical, .trace-anom .a-sev.catastrophic { color:var(--red); }
+
+  .trace-quote {
+    background:#000; border:1px solid var(--border);
+    padding:5px 8px; margin-top:5px;
+    font-family:'VT323'; font-size:14px;
+    color:var(--text); font-style:italic; line-height:1.35;
+  }
+  .trace-quote::before { content:'AI › '; font-family:'Press Start 2P';
+                         font-size:6px; color:var(--accent); margin-right:4px;
+                         font-style:normal; letter-spacing:1px; }
+
+  .trace-images { display:flex; gap:4px; margin-top:5px; }
+  .trace-images .ti {
+    flex:1; background:#000; border:1px solid var(--border);
+    text-align:center; padding:4px 0;
+    font-family:'Press Start 2P'; font-size:5px;
+    color:var(--dim); letter-spacing:1px;
+  }
+  .trace-images .ti .label { display:block; color:var(--accent); margin-bottom:2px; }
+  .trace-images .ti img { width:100%; height:36px; object-fit:cover;
+                           image-rendering:pixelated; display:block; }
+
+  /* Confidence bar chart */
+  .conf-bars { margin-top:5px; display:grid; gap:3px; }
+  .conf-bar  { display:grid; grid-template-columns:70px 1fr 36px;
+                gap:6px; align-items:center;
+                font-family:'VT323'; font-size:13px; }
+  .conf-bar .k { color:var(--dim); }
+  .conf-bar .tr { background:#000; border:1px solid var(--border);
+                   height:8px; position:relative; }
+  .conf-bar .fl { height:100%; background:linear-gradient(90deg, var(--accent), var(--green));
+                   transition:width 0.4s; }
+  .conf-bar .pc { text-align:right; color:var(--text); }
+  .conf-total { display:flex; justify-content:space-between;
+                  margin-top:5px; padding-top:5px;
+                  border-top:1px dashed var(--border);
+                  font-family:'Press Start 2P'; font-size:8px;
+                  color:var(--text); letter-spacing:1px; }
+  .conf-total .score { color:var(--green); }
+  .conf-total .score.med { color:var(--amber); }
+  .conf-total .score.low { color:var(--red); }
+
+  /* Tool/action plan steps */
+  .step-list { margin-top:5px; }
+  .step-row {
+    font-family:'VT323'; font-size:13px;
+    padding:3px 6px; margin-bottom:2px;
+    background:rgba(0,0,0,0.35); border-left:2px solid var(--border);
+    line-height:1.25;
+  }
+  .step-row.applied { border-left-color:var(--green); background:rgba(95,255,122,0.08); }
+  .step-row.applied::before { content:"✓ "; color:var(--green); font-weight:bold; }
+  .step-row.pending::before { content:"○ "; color:var(--dim); }
+  .step-row .tn { font-family:'Press Start 2P'; font-size:7px;
+                   color:var(--accent); letter-spacing:1px; }
+  .step-row .ta { color:var(--dim); }
+  .step-row .tr { display:block; color:var(--label); font-size:12px;
+                    margin-top:1px; padding-left:14px; }
+
+  /* Execute stage: countdown + buttons */
+  .exec-cd {
+    margin:6px 0; padding:6px 8px;
+    background:#000; border:1px solid var(--border);
+  }
+  .exec-cd-row {
+    display:flex; justify-content:space-between; align-items:center;
+    font-family:'Press Start 2P'; font-size:7px;
+    margin-bottom:4px; letter-spacing:1px; color:var(--amber);
+  }
+  .exec-cd-row .time { font-family:'VT323'; font-size:18px; color:var(--text); }
+  .exec-cd-track {
+    height:10px; background:#0a0d14; border:1px solid var(--border);
+    position:relative; overflow:hidden;
+  }
+  .exec-cd-fill {
+    height:100%; background:linear-gradient(90deg, var(--amber), var(--red));
+    transition:width 0.3s linear;
+  }
+  .exec-cd-fill.hitl { background:var(--purple); width:100%; }
+
+  .exec-progress { margin-top:5px;
+                    font-family:'VT323'; font-size:13px; color:var(--dim); }
+
+  .exec-btns { display:flex; gap:6px; margin-top:8px; }
+
+  /* Severity banner under panel title */
+  .sev-banner {
+    margin:0 0 8px 0; padding:5px 8px;
+    background:#000; border:2px solid var(--border);
+    font-family:'Press Start 2P'; font-size:7px;
+    letter-spacing:1px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .sev-banner .lbl { color:var(--dim); }
+  .sev-banner .val { color:var(--green); }
+  .sev-banner.warning      { border-color:var(--amber); }
+  .sev-banner.warning .val { color:var(--amber); }
+  .sev-banner.critical     { border-color:var(--red); }
+  .sev-banner.critical .val{ color:var(--red); }
+  .sev-banner.catastrophic { border-color:var(--red); background:#2a0707; }
+  .sev-banner.catastrophic .val { color:#fff; animation:blink 0.6s steps(2) infinite; }
+
+  /* ---------------- Bottom ---------------- */
+  #bottom {
+    grid-area:bottom; display:grid;
+    grid-template-columns: 1fr 380px; gap:6px; min-height:0;
+  }
+  #terminal-wrap { display:flex; flex-direction:column;
+                    background:var(--panel); border:2px solid var(--border);
+                    border-bottom:3px solid var(--border-hi); min-height:0; }
+  #terminal-head {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:8px 12px; background:var(--panel-hi); border-bottom:1px solid var(--border);
+    font-family:'Press Start 2P'; font-size:8px; color:var(--accent); letter-spacing:2px;
+  }
+  #terminal {
+    flex:1; background:var(--term-bg); padding:8px 12px;
+    overflow-y:auto; font-family:'VT323'; font-size:15px;
+    line-height:1.35; color:var(--term-text);
+  }
+  #terminal .line { margin:1px 0; word-wrap:break-word; }
+  #terminal .ts { color:#3a5a40; font-size:13px; margin-right:6px; }
+  #terminal .tag { font-family:'Press Start 2P'; font-size:8px;
+                   display:inline-block; min-width:64px; padding:0 4px;
+                   letter-spacing:1px; }
+  .tag-DETECT { color:var(--accent); }
+  .tag-REASON { color:var(--amber); }
+  .tag-HITL   { color:var(--purple); }
+  .tag-ACT    { color:var(--green); }
+  .tag-AUTO   { color:#fff; background:var(--red-dim); }
+  .tag-INFO   { color:var(--dim); }
+  #terminal .msg { color:var(--term-text); }
+
+  #controls {
+    background:var(--panel); border:2px solid var(--border);
+    border-bottom:3px solid var(--border-hi);
+    padding:10px 12px; display:flex; flex-direction:column;
+    gap:5px; overflow-y:auto;
+  }
+  .slider {
+    display:grid; grid-template-columns: 78px 1fr 42px;
+    gap:8px; align-items:center;
+    padding:3px 0;
+  }
+  .slider label { font-family:'Press Start 2P'; font-size:6px;
+                  color:var(--label); letter-spacing:1px; }
+  .slider .val  { text-align:right; font-family:'VT323'; font-size:16px;
+                  color:var(--text); }
+  input[type=range] {
+    -webkit-appearance:none; appearance:none; width:100%; height:10px;
+    background:#000; border:1px solid var(--border); padding:0;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; appearance:none;
+    width:14px; height:14px; background:var(--accent);
+    border:2px solid var(--bg); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb {
+    width:14px; height:14px; background:var(--accent);
+    border:2px solid var(--bg); cursor:pointer; border-radius:0;
+  }
+
+  /* Scrollbars */
+  *::-webkit-scrollbar { width:8px; height:8px; }
+  *::-webkit-scrollbar-track { background:#0a0d14; }
+  *::-webkit-scrollbar-thumb { background:var(--border-hi); }
+  *::-webkit-scrollbar-thumb:hover { background:var(--accent-dim); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div id="header">
+    <div id="brand">AGENT GREENHOUSE</div>
+    <div id="status-pill">NOMINAL</div>
+    <div id="meta">
+      <span><span class="led" id="led-db"></span>DB</span>
+      <span><span class="led" id="led-stream"></span>STREAM</span>
+      <span id="clock">--:--:--</span>
+    </div>
+  </div>
+
+  <!-- SCENE -->
+  <div id="scene-wrap">
+    <canvas id="scene" width="900" height="560"></canvas>
+    <div class="scene-overlay">
+      <div class="tag" id="tag-temp">TEMP --°C</div>
+      <div class="tag" id="tag-vpd">VPD -- kPa</div>
+    </div>
+    <div id="zone-labels">
+      <span>① SEEDLING</span>
+      <span>② GROWING</span>
+      <span>③ HARVEST</span>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div id="right">
+
+    <div class="panel">
+      <h3 class="panel-title">SENSORS <span class="sub">LIVE</span></h3>
+      <div class="gauge vpd">
+        <div>
+          <div class="lbl">VPD</div>
+          <div class="val" id="g-vpd">--</div>
+        </div>
+        <div class="stress-label">
+          <b>PLANT STRESS INDEX</b>
+          kPa · vapour pressure<br>deficit · compound signal
+        </div>
+      </div>
+      <div class="gauges" style="margin-top:6px;">
+        <div class="gauge"><div class="lbl">TEMP</div><div class="val" id="g-temp">--</div><div class="unit">°C</div></div>
+        <div class="gauge"><div class="lbl">HUMID</div><div class="val" id="g-hum">--</div><div class="unit">%</div></div>
+        <div class="gauge"><div class="lbl">CO₂</div><div class="val" id="g-co2">--</div><div class="unit">PPM</div></div>
+        <div class="gauge"><div class="lbl">PAR</div><div class="val" id="g-par">--</div><div class="unit">µMOL</div></div>
+        <div class="gauge"><div class="lbl">DLI</div><div class="val" id="g-dli">--</div><div class="unit">MOL/D</div></div>
+        <div class="gauge"><div class="lbl">TANK</div><div class="val" id="g-tank">--</div><div class="unit">%</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 class="panel-title">ZONE HEALTH <span class="sub">3 ZONES</span></h3>
+      <div id="zh-rows"></div>
+    </div>
+
+    <div class="panel" id="workflow-panel">
+      <h3 class="panel-title">
+        AGENT WORKFLOW
+        <span class="sub" id="wf-status">IDLE · MONITORING</span>
+      </h3>
+
+      <!-- Pipeline strip: 6 stage nodes with live status -->
+      <div id="pipeline-strip">
+        <div class="pl-stage" data-id="rules"      data-status="idle"><div class="pl-ring"><div class="pl-num">1</div></div><div class="pl-label">RULES</div></div>
+        <div class="pl-arrow"></div>
+        <div class="pl-stage" data-id="confidence" data-status="idle"><div class="pl-ring"><div class="pl-num">2</div></div><div class="pl-label">CONFIDENCE</div></div>
+        <div class="pl-arrow"></div>
+        <div class="pl-stage" data-id="vision"     data-status="idle"><div class="pl-ring"><div class="pl-num">3</div></div><div class="pl-label">VISION</div></div>
+        <div class="pl-arrow"></div>
+        <div class="pl-stage" data-id="action"     data-status="idle"><div class="pl-ring"><div class="pl-num">4</div></div><div class="pl-label">ACTION</div></div>
+        <div class="pl-arrow"></div>
+        <div class="pl-stage" data-id="decide"     data-status="idle"><div class="pl-ring"><div class="pl-num">5</div></div><div class="pl-label">DECIDE</div></div>
+        <div class="pl-arrow"></div>
+        <div class="pl-stage" data-id="execute"    data-status="idle"><div class="pl-ring"><div class="pl-num">6</div></div><div class="pl-label">EXECUTE</div></div>
+      </div>
+
+      <!-- Trace cards: detailed reasoning per stage -->
+      <div id="trace-cards">
+        <div class="trace-empty">
+          <span class="pix">▶ ALL CLEAR</span>
+          Agent is monitoring the greenhouse.<br>
+          Move sliders or press <b>STRESS TEST</b> to engage.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM -->
+  <div id="bottom">
+
+    <div id="terminal-wrap">
+      <div id="terminal-head">
+        <span>▶ AGENT LOG</span>
+        <span style="font-size:6px; color:var(--dim);">DETECT · REASON · ACT · HITL · AUTO</span>
+      </div>
+      <div id="terminal"></div>
+    </div>
+
+    <div id="controls">
+      <h3 class="panel-title" style="margin:-2px 0 6px 0;">ENVIRONMENT CONTROLS <span class="sub">→ /api/sensor</span></h3>
+      <div class="slider"><label>TEMP °C</label><input type="range" id="s-temp" min="15" max="48" step="0.5" value="24"><div class="val" id="v-temp">24</div></div>
+      <div class="slider"><label>HUMID %</label><input type="range" id="s-hum"  min="15" max="95" step="1" value="65"><div class="val" id="v-hum">65</div></div>
+      <div class="slider"><label>CO₂ PPM</label><input type="range" id="s-co2" min="300" max="2000" step="10" value="800"><div class="val" id="v-co2">800</div></div>
+      <div class="slider"><label>PAR µMOL</label><input type="range" id="s-par" min="50" max="1200" step="10" value="450"><div class="val" id="v-par">450</div></div>
+      <div class="slider"><label>SEED H₂O</label><input type="range" id="s-m0" min="5" max="95" step="1" value="60"><div class="val" id="v-m0">60</div></div>
+      <div class="slider"><label>GROW H₂O</label><input type="range" id="s-m1" min="5" max="95" step="1" value="55"><div class="val" id="v-m1">55</div></div>
+      <div class="slider"><label>HARV H₂O</label><input type="range" id="s-m2" min="5" max="95" step="1" value="50"><div class="val" id="v-m2">50</div></div>
+      <div class="slider"><label>TANK %</label><input type="range" id="s-tank" min="0" max="100" step="1" value="78"><div class="val" id="v-tank">78</div></div>
+      <div class="row" style="margin-top:auto;">
+        <button class="px stress" id="btn-stress">⚡ STRESS TEST</button>
+        <button class="px reset"  id="btn-reset">↺ RESET</button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ===========================================================================
+// API binding
+// ===========================================================================
+const API = location.protocol === "file:" ? "http://localhost:8000" : "";
+
+const stateModel = {
+  temperature:24, humidity:65, co2:800, par:450, dli:0, vpd:1.0, tank:78,
+  zone_health:{seedling:1, growing:1, harvest:1},
+  actuator:{vent_pct:0, fan_rpm:0, light_pct:70, cooling:false, co2_inject:false,
+            irrigation:{seedling:false, growing:false, harvest:false}},
+  severity:"nominal", incident:null, db_mode:"…", streamOk:false,
+  trace:null, countdown_remaining:null,
+};
+
+// ===========================================================================
+// Canvas + isometric helpers
+// ===========================================================================
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+const ISO = { tw: 56, th: 28, ox: 0, oy: 0 };
+const GRID = { W: 10, D: 4 };          // 10 cols × 4 rows of tiles
+const WALL_H = 84;
+const ROOF_H = 70;
+const RIDGE_GY = GRID.D / 2;           // 2.0
+
+// Zone column ranges (within GRID.W)
+const ZONES = {
+  seedling: { cols:[1,2], plants:[[1,1],[2,1],[1,2],[2,2]] },
+  growing:  { cols:[4,5], plants:[[4,1],[5,1],[4,2],[5,2]] },
+  harvest:  { cols:[7,8], plants:[[7,1],[8,1],[7,2],[8,2]] },
+};
+const EQUIPMENT_COL = 0;               // gx=0: equipment column
+const PATH_COLS = new Set([3, 6, 9]);  // path tiles
+
+// Palette
+const P = {
+  // sky
+  sky:{ cool:[36,72,108], warm:[180,98,42], hot:[120,28,28] },
+  // structure
+  frame:"#231910", frameHi:"#3d2c18", frameLo:"#120a06",
+  glass:"rgba(180,220,235,0.22)", glassEdge:"#5b8aa0",
+  glassWarm:"rgba(220,200,170,0.30)",
+  // floor
+  soilDry:"#4a3220",  soilDryEdge:"#2a1b10",
+  soilWet:"#2b1f3d",  soilWetEdge:"#160d24",
+  pathLight:"#4a5260", pathDark:"#2a3040", pathEdge:"#181d28",
+  concrete:"#383e4a", concreteEdge:"#1f242e",
+  // plants
+  stemGreen:"#2b8a32", stemDry:"#7a6a30", stemDead:"#5a4022",
+  leafGreenT:"#52d65a", leafGreenB:"#1f7a2a",
+  leafAmberT:"#d8c64a", leafAmberB:"#7a6a24",
+  leafBrownT:"#8a6a30", leafBrownB:"#5a4422",
+  fruitRed:"#d63838", fruitDim:"#7a3530",
+  pot:"#5a3018", potHi:"#7a4226", potRim:"#3a1d08",
+  // equipment
+  tankBody:"#3b6b8f", tankHi:"#5a8caa", tankFluid:"#2a78b0",
+  co2:"#a8a8a8", co2Hi:"#cfcfcf",
+  fanCase:"#5b6470", fanCaseHi:"#7d8a99", fanBlade:"#1d2530",
+  panelCase:"#1c2433", panelHi:"#2e3b4a", led_g:"#5fff7a", led_y:"#ffd24a", led_r:"#ff5a4a",
+  // misc
+  shadow:"rgba(0,0,0,0.30)",
+  shimmer:"rgba(255,210,120,0.20)",
+  droplet:"#9ad8ff",
+  vent:"#a08550", ventClosed:"#5d4528",
+  lightBeam:"rgba(255,243,160,0.18)",
+};
+
+let plantSway = 0, fanAngle = 0;
+let particles = [];
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  canvas.width  = Math.max(640, Math.floor(r.width  * 1));
+  canvas.height = Math.max(420, Math.floor(r.height * 1));
+  ctx.imageSmoothingEnabled = false;
+  // Auto-fit ISO origin
+  const totalW = (GRID.W + GRID.D) * ISO.tw / 2;
+  const totalH = (GRID.W + GRID.D) * ISO.th / 2;
+  // Center horizontally + give room for roof above + ground below
+  ISO.ox = canvas.width/2 - (GRID.W - GRID.D) * ISO.tw / 4 + ISO.tw/2;
+  // Push origin down enough that the peak of the roof fits
+  ISO.oy = (canvas.height - totalH) / 2 - 10;
+  ISO.oy = Math.max(ISO.oy, WALL_H + ROOF_H + 20);
+}
+addEventListener("resize", resize);
+
+// ------ ISO math: convert grid (gx, gy, elevation) → screen ----------------
+function S(gx, gy, gz = 0) {
+  return {
+    x: ISO.ox + (gx - gy) * (ISO.tw/2),
+    y: ISO.oy + (gx + gy) * (ISO.th/2) - gz,
+  };
+}
+
+// Draw a single floor tile as a diamond. `gx`,`gy` is the TILE coord; the tile spans (gx..gx+1, gy..gy+1).
+function tile(gx, gy, fill, edge) {
+  const t  = S(gx,   gy);
+  const r  = S(gx+1, gy);
+  const b  = S(gx+1, gy+1);
+  const l  = S(gx,   gy+1);
+  ctx.beginPath();
+  ctx.moveTo(t.x, t.y);
+  ctx.lineTo(r.x, r.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.lineTo(l.x, l.y);
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  if (edge) { ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke(); }
+}
+
+// Draw a vertical wall segment from (gx1,gy1) to (gx2,gy2) rising `h` pixels.
+function wall(gx1, gy1, gx2, gy2, h, fillTop, fillBody, edge) {
+  const a = S(gx1, gy1), b = S(gx2, gy2);
+  ctx.fillStyle = fillBody;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.lineTo(b.x, b.y - h);
+  ctx.lineTo(a.x, a.y - h);
+  ctx.closePath();
+  ctx.fill();
+  if (edge) { ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke(); }
+}
+
+// ------ Sky / sun -----------------------------------------------------------
+function lerp(a,b,t){return a + (b-a) * t;}
+function clamp(x,lo,hi){return Math.max(lo, Math.min(hi, x));}
+function rgb(c){ return `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`; }
+function mixRgb(a,b,t){ return [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t)]; }
+
+function skyColor(temp) {
+  if (temp <= 28) return P.sky.cool;
+  if (temp <= 38) return mixRgb(P.sky.cool, P.sky.warm, (temp-28)/10);
+  return mixRgb(P.sky.warm, P.sky.hot, clamp((temp-38)/10, 0, 1));
+}
+
+function drawSky() {
+  const W = canvas.width, H = canvas.height;
+  const top = skyColor(stateModel.temperature);
+  const bot = mixRgb(top, [40, 60, 40], 0.5);
+  const g = ctx.createLinearGradient(0, 0, 0, H * 0.85);
+  g.addColorStop(0, rgb(top));
+  g.addColorStop(1, rgb(bot));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // Distant ground
+  ctx.fillStyle = "#2a3a25";
+  ctx.fillRect(0, H * 0.78, W, H * 0.22);
+  // Sun glow when hot
+  if (stateModel.temperature > 32) {
+    const alpha = Math.min(0.40, (stateModel.temperature - 32) / 25);
+    const r = 60 + Math.min(40, (stateModel.temperature - 32) * 2);
+    ctx.fillStyle = `rgba(255,200,80,${alpha})`;
+    ctx.beginPath(); ctx.arc(canvas.width - 110, 90, r, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = `rgba(255,235,140,${alpha * 0.5})`;
+    ctx.beginPath(); ctx.arc(canvas.width - 110, 90, r * 0.45, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+// ------ Floor tiles --------------------------------------------------------
+function drawFloor() {
+  for (let gy = 0; gy < GRID.D; gy++) {
+    for (let gx = 0; gx < GRID.W; gx++) {
+      let fill, edge;
+      if (gx === EQUIPMENT_COL) {
+        fill = P.concrete; edge = P.concreteEdge;
+      } else if (PATH_COLS.has(gx)) {
+        // checker pattern
+        const dark = (gx + gy) % 2 === 0;
+        fill = dark ? P.pathDark : P.pathLight;
+        edge = P.pathEdge;
+      } else {
+        // determine which zone this tile belongs to
+        const zone = (gx <= 2) ? "seedling" : (gx <= 5) ? "growing" : "harvest";
+        const wet = stateModel.actuator.irrigation[zone];
+        fill = wet ? P.soilWet : P.soilDry;
+        edge = wet ? P.soilWetEdge : P.soilDryEdge;
+      }
+      tile(gx, gy, fill, edge);
+    }
+  }
+
+  // Drop-shadow inside greenhouse
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = "#000";
+  const t = S(0, 0), r = S(GRID.W, 0), b = S(GRID.W, GRID.D), l = S(0, GRID.D);
+  ctx.beginPath();
+  ctx.moveTo(t.x, t.y); ctx.lineTo(r.x, r.y); ctx.lineTo(b.x, b.y); ctx.lineTo(l.x, l.y);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+// ------ Greenhouse frame ---------------------------------------------------
+function drawFrame() {
+  const fEdge = P.frameLo, fHi = P.frameHi, f = P.frame;
+  // Corner posts (4)
+  const corners = [[0,0], [GRID.W,0], [0,GRID.D], [GRID.W,GRID.D]];
+  for (const [gx, gy] of corners) {
+    const p = S(gx, gy);
+    ctx.fillStyle = fEdge; ctx.fillRect(p.x - 3, p.y - WALL_H, 6, WALL_H);
+    ctx.fillStyle = f;    ctx.fillRect(p.x - 2, p.y - WALL_H, 4, WALL_H);
+    ctx.fillStyle = fHi;  ctx.fillRect(p.x - 2, p.y - WALL_H, 1, WALL_H);
+  }
+
+  // Mid posts along the back walls (every 2 tiles)
+  for (let i = 2; i < GRID.W; i += 2) {
+    const p = S(i, 0);
+    ctx.fillStyle = f; ctx.fillRect(p.x - 1, p.y - WALL_H, 2, WALL_H);
+  }
+  for (let i = 1; i < GRID.D; i++) {
+    const p = S(0, i);
+    ctx.fillStyle = f; ctx.fillRect(p.x - 1, p.y - WALL_H, 2, WALL_H);
+  }
+
+  // Eave beams (4) at wall top
+  ctx.strokeStyle = P.frameLo; ctx.lineWidth = 3;
+  const TL = S(0, 0), TR = S(GRID.W, 0), BR = S(GRID.W, GRID.D), BL = S(0, GRID.D);
+  beam(TL, TR); beam(TL, BL); beam(TR, BR); beam(BL, BR);
+  function beam(a, b) {
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y - WALL_H);
+    ctx.lineTo(b.x, b.y - WALL_H);
+    ctx.stroke();
+  }
+
+  // Glass panels for the BACK walls (visible from inside).
+  // Back-left wall: from (0,0) to (0,GRID.D), face visible
+  drawGlassWallStrip(0, 0, 0, GRID.D, WALL_H);
+  // Back-right wall: from (0,0) to (GRID.W, 0), face visible
+  drawGlassWallStrip(0, 0, GRID.W, 0, WALL_H);
+}
+
+function drawGlassWallStrip(gx1, gy1, gx2, gy2, h) {
+  const a = S(gx1, gy1), b = S(gx2, gy2);
+  // Warm tint when temperature high
+  const warm = stateModel.temperature > 36 ? 0.55 : 0;
+  const tint = warm > 0 ? P.glassWarm : P.glass;
+  ctx.fillStyle = tint;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+  ctx.lineTo(b.x, b.y - h); ctx.lineTo(a.x, a.y - h);
+  ctx.closePath(); ctx.fill();
+  // panel divisions
+  const dx = (gx2 - gx1), dy = (gy2 - gy1);
+  const steps = Math.max(Math.abs(dx), Math.abs(dy));
+  ctx.strokeStyle = P.glassEdge; ctx.lineWidth = 1;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = a.x + (b.x - a.x) * t;
+    const y = a.y + (b.y - a.y) * t;
+    ctx.beginPath();
+    ctx.moveTo(x, y); ctx.lineTo(x, y - h);
+    ctx.stroke();
+  }
+  // horizontal mid bar
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y - h/2); ctx.lineTo(b.x, b.y - h/2);
+  ctx.stroke();
+}
+
+// ------ Roof (pitched, ridge along gx) -------------------------------------
+function drawRoof() {
+  const ridgeBack  = S(0,      RIDGE_GY); ridgeBack.y  -= WALL_H + ROOF_H;
+  const ridgeFront = S(GRID.W, RIDGE_GY); ridgeFront.y -= WALL_H + ROOF_H;
+  const eBL = S(0,      0      ); eBL.y -= WALL_H;
+  const eBR = S(GRID.W, 0      ); eBR.y -= WALL_H;
+  const eFL = S(0,      GRID.D ); eFL.y -= WALL_H;
+  const eFR = S(GRID.W, GRID.D ); eFR.y -= WALL_H;
+
+  const warm = stateModel.temperature > 36;
+  const glassFill = warm ? "rgba(220,180,120,0.55)" : "rgba(170,210,235,0.55)";
+  const glassFillFront = warm ? "rgba(220,180,120,0.40)" : "rgba(140,190,225,0.42)";
+
+  // Back roof panel
+  ctx.fillStyle = glassFill;
+  ctx.beginPath();
+  ctx.moveTo(eBL.x, eBL.y); ctx.lineTo(eBR.x, eBR.y);
+  ctx.lineTo(ridgeFront.x, ridgeFront.y); ctx.lineTo(ridgeBack.x, ridgeBack.y);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = P.frameLo; ctx.lineWidth = 1; ctx.stroke();
+  // ribs
+  ctx.strokeStyle = P.glassEdge;
+  for (let i = 1; i < GRID.W; i++) {
+    const a = S(i, 0); a.y -= WALL_H;
+    const b = S(i, RIDGE_GY); b.y -= WALL_H + ROOF_H;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+
+  // Front roof panel
+  ctx.fillStyle = glassFillFront;
+  ctx.beginPath();
+  ctx.moveTo(eFL.x, eFL.y); ctx.lineTo(eFR.x, eFR.y);
+  ctx.lineTo(ridgeFront.x, ridgeFront.y); ctx.lineTo(ridgeBack.x, ridgeBack.y);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = P.frameLo; ctx.lineWidth = 1; ctx.stroke();
+  ctx.strokeStyle = P.glassEdge;
+  for (let i = 1; i < GRID.W; i++) {
+    const a = S(i, GRID.D); a.y -= WALL_H;
+    const b = S(i, RIDGE_GY); b.y -= WALL_H + ROOF_H;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+
+  // Gable ends (triangular)
+  // West (gx=0) — mostly hidden, draw subtly
+  ctx.fillStyle = "rgba(120,160,180,0.35)";
+  ctx.beginPath();
+  ctx.moveTo(eBL.x, eBL.y); ctx.lineTo(eFL.x, eFL.y); ctx.lineTo(ridgeBack.x, ridgeBack.y);
+  ctx.closePath(); ctx.fill();
+  // East (gx=GRID.W) — visible
+  ctx.fillStyle = "rgba(160,200,220,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(eBR.x, eBR.y); ctx.lineTo(eFR.x, eFR.y); ctx.lineTo(ridgeFront.x, ridgeFront.y);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = P.frameLo; ctx.lineWidth = 2; ctx.stroke();
+
+  // Ridge beam
+  ctx.strokeStyle = P.frameLo; ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(ridgeBack.x, ridgeBack.y); ctx.lineTo(ridgeFront.x, ridgeFront.y);
+  ctx.stroke();
+
+  // Grow-light bar (under the ridge, slung in front)
+  const lightOn = stateModel.actuator.light_pct > 0;
+  const lightColor = lightOn
+    ? `rgba(255,243,${160 + (1-stateModel.actuator.light_pct/100)*60|0}, ${0.4 + 0.6 * stateModel.actuator.light_pct/100})`
+    : "rgba(80,80,80,0.5)";
+  ctx.strokeStyle = lightColor; ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(ridgeBack.x, ridgeBack.y + 6); ctx.lineTo(ridgeFront.x, ridgeFront.y + 6);
+  ctx.stroke();
+  // glow beam
+  if (lightOn) {
+    ctx.fillStyle = P.lightBeam;
+    ctx.beginPath();
+    ctx.moveTo(ridgeBack.x, ridgeBack.y + 6);
+    ctx.lineTo(ridgeFront.x, ridgeFront.y + 6);
+    ctx.lineTo(S(GRID.W, RIDGE_GY).x, S(GRID.W, RIDGE_GY).y);
+    ctx.lineTo(S(0, RIDGE_GY).x, S(0, RIDGE_GY).y);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // Roof vents on ridge
+  drawVents(ridgeBack, ridgeFront);
+}
+
+function drawVents(ridgeBack, ridgeFront) {
+  const vent = stateModel.actuator.vent_pct / 100;
+  for (let i = 0; i < 6; i++) {
+    const t = (i + 0.5) / 6;
+    const cx = lerp(ridgeBack.x, ridgeFront.x, t);
+    const cy = lerp(ridgeBack.y, ridgeFront.y, t);
+    ctx.save();
+    ctx.translate(cx, cy - 2);
+    ctx.rotate(-vent * 1.1);
+    ctx.fillStyle = vent > 0.05 ? P.vent : P.ventClosed;
+    ctx.fillRect(-14, -3, 28, 4);
+    ctx.fillStyle = P.frameLo;
+    ctx.fillRect(-14, -3, 28, 1);
+    ctx.restore();
+  }
+}
+
+// ------ Equipment column (gx=0, gy=0..3) -----------------------------------
+function drawEquipment() {
+  // gy=0: water tank | gy=1: CO2 | gy=2: control panel | gy=3: fan
+  drawWaterTank(0, 0);
+  drawCO2Tank(0, 1);
+  drawControlPanel(0, 2);
+  drawFan(0, 3);
+}
+
+function drawWaterTank(gx, gy) {
+  const c = tileCenter(gx, gy);
+  const baseY = c.y;
+  const W = 22, H = 56;
+  // shadow
+  ovalShadow(c.x, baseY + 2, 16, 5);
+  // body
+  ctx.fillStyle = P.tankBody;
+  ctx.fillRect(c.x - W/2, baseY - H, W, H);
+  ctx.fillStyle = P.tankHi;
+  ctx.fillRect(c.x - W/2, baseY - H, 3, H);
+  // fluid window
+  const fillH = (H - 12) * (stateModel.tank / 100);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(c.x - W/2 + 3, baseY - H + 6, W - 6, H - 12);
+  ctx.fillStyle = P.tankFluid;
+  ctx.fillRect(c.x - W/2 + 4, baseY - 6 - fillH, W - 8, fillH);
+  // bands
+  ctx.fillStyle = P.frameLo;
+  ctx.fillRect(c.x - W/2, baseY - H + 4, W, 1);
+  ctx.fillRect(c.x - W/2, baseY - 4, W, 1);
+  // pump LED
+  const pumpOn = Object.values(stateModel.actuator.irrigation).some(v => v);
+  ctx.fillStyle = pumpOn ? P.led_g : "#221";
+  ctx.fillRect(c.x + 6, baseY - 11, 4, 4);
+  if (pumpOn) {
+    ctx.fillStyle = "rgba(95,255,122,0.4)";
+    ctx.fillRect(c.x + 5, baseY - 12, 6, 6);
+  }
+  // label
+  pixelLabel(c.x, baseY - H - 6, "H₂O", "#cce");
+}
+
+function drawCO2Tank(gx, gy) {
+  const c = tileCenter(gx, gy);
+  const baseY = c.y;
+  const W = 14, H = 48;
+  ovalShadow(c.x, baseY + 2, 10, 4);
+  // body
+  ctx.fillStyle = P.co2;
+  ctx.fillRect(c.x - W/2, baseY - H, W, H);
+  ctx.fillStyle = P.co2Hi;
+  ctx.fillRect(c.x - W/2, baseY - H, 2, H);
+  // top valve
+  ctx.fillStyle = P.frameLo;
+  ctx.fillRect(c.x - 4, baseY - H - 4, 8, 4);
+  ctx.fillStyle = "#d04020";
+  ctx.fillRect(c.x - 2, baseY - H - 7, 4, 3);
+  // injection puff
+  if (stateModel.actuator.co2_inject) {
+    ctx.fillStyle = "rgba(200,200,200,0.6)";
+    for (let i = 0; i < 3; i++) ctx.fillRect(c.x + 10, baseY - H + 4 + i * 6, 6 - i, 2);
+  }
+  pixelLabel(c.x, baseY - H - 14, "CO₂", "#cce");
+}
+
+function drawControlPanel(gx, gy) {
+  const c = tileCenter(gx, gy);
+  const baseY = c.y;
+  const W = 26, H = 36;
+  ovalShadow(c.x, baseY + 2, 16, 5);
+  ctx.fillStyle = P.panelHi; ctx.fillRect(c.x - W/2 - 1, baseY - H - 1, W + 2, H + 2);
+  ctx.fillStyle = P.panelCase; ctx.fillRect(c.x - W/2, baseY - H, W, H);
+  // screen
+  ctx.fillStyle = "#04140a";
+  ctx.fillRect(c.x - 10, baseY - H + 4, 20, 12);
+  ctx.fillStyle = P.led_g;
+  for (let i = 0; i < 4; i++) ctx.fillRect(c.x - 9 + i * 5, baseY - H + 6 + (i % 2) * 4, 4, 2);
+  // status LEDs
+  const ss = stateModel.severity;
+  drawLed(c.x - 8, baseY - 12, ss === "nominal" ? P.led_g : "#221");
+  drawLed(c.x,     baseY - 12, ss === "warning" ? P.led_y : "#221");
+  drawLed(c.x + 8, baseY - 12, (ss === "critical" || ss === "catastrophic") ? P.led_r : "#221");
+  pixelLabel(c.x, baseY - H - 6, "CTRL", "#cce");
+}
+
+function drawLed(x, y, color) {
+  ctx.fillStyle = color; ctx.fillRect(x - 2, y - 2, 4, 4);
+  if (color !== "#221") { ctx.fillStyle = color; ctx.globalAlpha = 0.4;
+                          ctx.fillRect(x - 3, y - 3, 6, 6); ctx.globalAlpha = 1; }
+}
+
+function drawFan(gx, gy) {
+  const c = tileCenter(gx, gy);
+  const baseY = c.y;
+  const W = 30, H = 30;
+  ovalShadow(c.x, baseY + 2, 18, 5);
+  // stand
+  ctx.fillStyle = P.frame; ctx.fillRect(c.x - 2, baseY - 12, 4, 12);
+  ctx.fillStyle = P.frameLo; ctx.fillRect(c.x - 6, baseY - 2, 12, 3);
+  // case
+  ctx.fillStyle = P.fanCase;
+  ctx.fillRect(c.x - W/2, baseY - 12 - H, W, H);
+  ctx.fillStyle = P.fanCaseHi;
+  ctx.fillRect(c.x - W/2, baseY - 12 - H, W, 3);
+  ctx.fillStyle = P.frameLo;
+  ctx.strokeRect && ctx.strokeRect(c.x - W/2, baseY - 12 - H, W, H);
+  // blades
+  if (stateModel.actuator.fan_rpm > 0) fanAngle += stateModel.actuator.fan_rpm / 1500;
+  const cx = c.x, cy = baseY - 12 - H/2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(fanAngle);
+  ctx.fillStyle = P.fanBlade;
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(-1, -10, 2, 20);
+    ctx.rotate(Math.PI/2);
+  }
+  ctx.fillStyle = "#888";
+  ctx.fillRect(-2, -2, 4, 4);
+  ctx.restore();
+  pixelLabel(c.x, baseY - 12 - H - 6, "FAN", "#cce");
+}
+
+function ovalShadow(x, y, rx, ry) {
+  ctx.fillStyle = P.shadow;
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI*2); ctx.fill();
+}
+
+function pixelLabel(x, y, text, color) {
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(x - text.length * 3.5 - 2, y - 8, text.length * 7 + 4, 10);
+  ctx.fillStyle = color;
+  ctx.font = "7px 'Press Start 2P'";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(text, x, y - 3);
+}
+
+function tileCenter(gx, gy) {
+  // center of diamond tile (gx, gy)
+  return S(gx + 0.5, gy + 0.5);
+}
+
+// ------ Plants -------------------------------------------------------------
+function drawPlantSorted() {
+  const all = [];
+  for (const zname of Object.keys(ZONES)) {
+    for (const [gx, gy] of ZONES[zname].plants) {
+      all.push({ gx, gy, zone: zname });
+    }
+  }
+  // sort back-to-front: smaller (gx+gy) drawn first
+  all.sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
+  for (const p of all) drawPlant(p.gx, p.gy, p.zone);
+}
+
+function drawPlant(gx, gy, zone) {
+  const c = tileCenter(gx, gy);
+  const health = stateModel.zone_health[zone];
+  const slump = health < 0.2;
+  const droop = (1 - health) * 16;
+  const sway  = Math.sin(plantSway + gx + gy * 1.3) * (health > 0.5 ? 1.5 : 0);
+  const plantH = { seedling: 22, growing: 38, harvest: 50 }[zone];
+
+  // soft shadow under pot
+  ovalShadow(c.x, c.y + 2, 11, 4);
+
+  // pot
+  ctx.fillStyle = P.pot;
+  ctx.fillRect(c.x - 8, c.y - 4, 16, 6);
+  ctx.fillStyle = P.potHi;
+  ctx.fillRect(c.x - 8, c.y - 4, 16, 1);
+  ctx.fillStyle = P.potRim;
+  ctx.fillRect(c.x - 9, c.y - 5, 18, 2);
+
+  // stem
+  const stemColor = health > 0.6 ? P.stemGreen : health > 0.3 ? P.stemDry : P.stemDead;
+  const baseY = c.y - 4;
+  const topY  = baseY - plantH + droop;
+  ctx.save();
+  if (slump) {
+    ctx.translate(c.x, baseY);
+    ctx.rotate(0.55);
+    ctx.translate(-c.x, -baseY);
+  }
+  ctx.fillStyle = stemColor;
+  ctx.fillRect(c.x - 1 + sway*0.5, topY, 2, plantH - droop);
+
+  // leaves
+  const leafT = health > 0.6 ? P.leafGreenT : health > 0.3 ? P.leafAmberT : P.leafBrownT;
+  const leafB = health > 0.6 ? P.leafGreenB : health > 0.3 ? P.leafAmberB : P.leafBrownB;
+  const leafCount = { seedling: 2, growing: 3, harvest: 3 }[zone];
+  for (let i = 0; i < leafCount; i++) {
+    const frac = (i + 1) / (leafCount + 0.4);
+    const ly = topY + (plantH - droop) * (1 - frac);
+    const sz = 4 + i * 1.5;
+    // left
+    ctx.fillStyle = leafT;
+    ctx.fillRect(c.x - sz - 1 + sway, ly, sz, 3);
+    ctx.fillStyle = leafB;
+    ctx.fillRect(c.x - sz - 1 + sway, ly + 3, sz, 1);
+    // right
+    ctx.fillStyle = leafT;
+    ctx.fillRect(c.x + 1 + sway, ly, sz, 3);
+    ctx.fillStyle = leafB;
+    ctx.fillRect(c.x + 1 + sway, ly + 3, sz, 1);
+    // sprout indicator at top
+    if (i === leafCount - 1) {
+      ctx.fillStyle = leafT;
+      ctx.fillRect(c.x - 1 + sway, ly - 2, 2, 2);
+    }
+  }
+  // fruit (harvest only)
+  if (zone === "harvest" && health > 0.35) {
+    const fc = health > 0.65 ? P.fruitRed : P.fruitDim;
+    ctx.fillStyle = fc;
+    ctx.fillRect(c.x + 3 + sway, topY + (plantH - droop) * 0.45, 3, 4);
+    ctx.fillRect(c.x - 6 + sway, topY + (plantH - droop) * 0.65, 3, 4);
+    ctx.fillStyle = "#fff"; // highlight
+    ctx.fillRect(c.x + 3 + sway, topY + (plantH - droop) * 0.45, 1, 1);
+    ctx.fillRect(c.x - 6 + sway, topY + (plantH - droop) * 0.65, 1, 1);
+  }
+  ctx.restore();
+
+  // water droplet trigger when irrigation active on this zone
+  if (stateModel.actuator.irrigation[zone] && Math.random() < 0.15) {
+    particles.push({
+      x: c.x + (Math.random() - 0.5) * 18,
+      y: c.y - plantH - 20, vx: 0, vy: 1.2 + Math.random() * 0.8,
+      type: "droplet", life: 50, zone,
+    });
+  }
+}
+
+// ------ Particles ----------------------------------------------------------
+function drawParticles() {
+  // spawn shimmer
+  if (stateModel.temperature > 36) {
+    const intensity = Math.min(0.6, (stateModel.temperature - 36) / 12);
+    const spawns = Math.random() < intensity ? Math.floor(intensity * 6) : 0;
+    for (let i = 0; i < spawns; i++) {
+      particles.push({
+        x: ISO.ox + (Math.random() - 0.5) * 500,
+        y: ISO.oy + Math.random() * 100 + 80,
+        vx: (Math.random() - 0.5) * 0.3, vy: -0.8 - Math.random() * 0.7,
+        type: "shimmer", life: 60,
+      });
+    }
+  }
+  particles = particles.filter(p => {
+    p.x += p.vx; p.y += p.vy; p.life -= 1;
+    if (p.life <= 0) return false;
+    if (p.type === "shimmer") {
+      ctx.fillStyle = P.shimmer;
+      ctx.fillRect(p.x | 0, p.y | 0, 3, 3);
+    } else if (p.type === "droplet") {
+      ctx.fillStyle = P.droplet;
+      ctx.fillRect(p.x | 0, p.y | 0, 2, 3);
+    }
+    return true;
+  });
+}
+
+// ------ Main draw loop -----------------------------------------------------
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawSky();
+  // back walls first so they're behind everything
+  drawFloor();
+  drawFrame();
+  drawEquipment();
+  drawPlantSorted();
+  drawRoof();
+  drawParticles();
+}
+
+function loop() {
+  plantSway += 0.05;
+  draw();
+  requestAnimationFrame(loop);
+}
+resize();
+requestAnimationFrame(loop);
+
+// ===========================================================================
+// HTML panels
+// ===========================================================================
+const $ = id => document.getElementById(id);
+const setText = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+
+function updateGauges() {
+  setText("g-temp", stateModel.temperature.toFixed(1));
+  setText("g-hum",  stateModel.humidity.toFixed(0));
+  setText("g-vpd",  stateModel.vpd.toFixed(2));
+  setText("g-co2",  Math.round(stateModel.co2));
+  setText("g-par",  Math.round(stateModel.par));
+  setText("g-dli",  stateModel.dli.toFixed(1));
+  setText("g-tank", Math.round(stateModel.tank));
+  setText("tag-temp", `TEMP ${stateModel.temperature.toFixed(1)}°C`);
+  setText("tag-vpd",  `VPD ${stateModel.vpd.toFixed(2)} kPa`);
+
+  // gauge severity classes
+  const tempCls = stateModel.temperature > 38 ? "crit"
+                : stateModel.temperature > 32 ? "warn" : "";
+  document.querySelectorAll(".gauge")[1].className = "gauge " + tempCls;  // temp
+  const humCls = stateModel.humidity < 30 ? "crit" : stateModel.humidity < 45 ? "warn" : "";
+  document.querySelectorAll(".gauge")[2].className = "gauge " + humCls;
+
+  // status pill
+  const pill = $("status-pill");
+  pill.className = "";
+  pill.textContent = stateModel.severity.toUpperCase();
+  if (stateModel.severity === "warning")      pill.classList.add("warn");
+  else if (stateModel.severity === "critical") pill.classList.add("crit");
+  else if (stateModel.severity === "catastrophic") pill.classList.add("cat");
+}
+
+function renderZoneHealth() {
+  const wrap = $("zh-rows");
+  wrap.innerHTML = "";
+  const order = [["seedling","① SEEDLING"],["growing","② GROWING"],["harvest","③ HARVEST"]];
+  for (const [k, label] of order) {
+    const v = stateModel.zone_health[k] || 0;
+    const cls = v > 0.6 ? "green" : v > 0.3 ? "amber" : "red";
+    const filled = Math.round(v * 10);
+    const segs = Array.from({length:10}, (_,i) =>
+      `<div class="seg ${i < filled ? cls : ''}"></div>`).join("");
+    wrap.insertAdjacentHTML("beforeend",
+      `<div class="zone"><div class="name">${label}</div><div class="bar">${segs}</div><div class="pct">${Math.round(v*100)}%</div></div>`);
+  }
+}
+
+// ---- Workflow trace rendering ---------------------------------------------
+function fmtArgs(args) {
+  return Object.entries(args || {}).map(([k,v]) => `${k}=${v}`).join(", ");
+}
+
+function renderPipelineStrip(stages) {
+  const order = ["rules","confidence","vision","action","decide","execute"];
+  const status = Object.fromEntries(stages.map(s => [s.id, s.status]));
+  document.querySelectorAll(".pl-stage").forEach(el => {
+    const id = el.dataset.id;
+    el.setAttribute("data-status", status[id] || "idle");
+  });
+  // Light up arrows when the NEXT stage has started
+  const arrows = document.querySelectorAll(".pl-arrow");
+  for (let i = 0; i < arrows.length; i++) {
+    const next = status[order[i+1]];
+    arrows[i].classList.toggle("active", next && next !== "idle");
+  }
+}
+
+function renderTraceCard(num, stage) {
+  const status = stage.status;
+  const dur = stage.duration != null ? ` ${stage.duration.toFixed(1)}s` : "";
+  const badge = `<span class="trace-badge ${status}">${status.toUpperCase()}${dur}</span>`;
+  let body = "";
+
+  // Stage-specific rich content
+  if (stage.id === "rules" && stage.data.anomalies && stage.data.anomalies.length) {
+    body += `<div class="trace-anom">` +
+      stage.data.anomalies.slice(0, 6).map(a =>
+        `<div class="a-row">
+           <span class="a-name">${a.sensor}</span>
+           <span class="a-val">${a.value} (z=${(+a.z).toFixed(2)})</span>
+           <span class="a-sev ${a.severity}">${a.severity}</span>
+         </div>`
+      ).join("") + `</div>`;
+    if (stage.data.vpd != null) {
+      body += `<div class="trace-kv">
+        <span class="k">vpd</span><span class="v ${stage.data.vpd > 2 ? 'crit' : stage.data.vpd > 1.4 ? 'warn' : ''}">${(+stage.data.vpd).toFixed(2)} kPa</span>
+      </div>`;
+    }
+  }
+
+  if (stage.id === "confidence" && stage.data.components) {
+    const c = stage.data.components;
+    body += `<div class="conf-bars">` +
+      Object.entries(c).map(([k,v]) => `
+        <div class="conf-bar">
+          <span class="k">${k}</span>
+          <div class="tr"><div class="fl" style="width:${(v*100)|0}%"></div></div>
+          <span class="pc">${(v*100|0)}%</span>
+        </div>`
+      ).join("") + `</div>`;
+    if (stage.data.score != null) {
+      const sc = stage.data.score;
+      const cls = sc >= 0.85 ? "" : sc >= 0.6 ? "med" : "low";
+      const phase = stage.data.phase ? ` · ${stage.data.phase}` : "";
+      const prev = stage.data.pre_vision_score != null
+        ? ` <span style="font-size:12px;color:var(--dim);">(pre ${stage.data.pre_vision_score.toFixed(2)})</span>` : "";
+      body += `<div class="conf-total">
+        <span>SCORE${phase}</span>
+        <span class="score ${cls}">${sc.toFixed(2)}${prev}</span>
+      </div>`;
+    }
+  }
+
+  if (stage.id === "vision") {
+    if (stage.data.images_sent) {
+      const paths = stage.data.image_paths || [];
+      body += `<div class="trace-images">` +
+        ["seedling","growing","harvest"].map((z, i) => {
+          const src = paths[i] ? `${API}/assets/${paths[i]}` : "";
+          return `<div class="ti">
+            <span class="label">${z}</span>
+            ${src ? `<img src="${src}" alt="">` : ""}
+          </div>`;
+        }).join("") + `</div>`;
+    }
+    if (stage.data.severity_match != null) {
+      body += `<div class="trace-kv">
+        <span class="k">model</span><span class="v">gemini-2.0-flash-001</span>
+        <span class="k">match</span><span class="v">${(stage.data.severity_match).toFixed(2)}</span>
+        <span class="k">confirmed</span><span class="v">${stage.data.severity_confirmed || "?"}</span>
+        <span class="k">zones</span><span class="v">${(stage.data.affected_zones || []).join(", ") || "—"}</span>
+      </div>`;
+    }
+    if (stage.data.root_cause) {
+      body += `<div class="trace-quote">${escapeHTML(stage.data.root_cause)}</div>`;
+    }
+  }
+
+  if (stage.id === "action" && stage.data.steps) {
+    body += `<div class="trace-kv">
+      <span class="k">risk</span><span class="v ${stage.data.risk === 'medium' ? 'warn' : ''}">${stage.data.risk || "?"}</span>
+      <span class="k">steps</span><span class="v">${stage.data.steps.length}</span>
+    </div>`;
+    body += `<div class="step-list">` +
+      stage.data.steps.map(s => `
+        <div class="step-row pending">
+          <span class="tn">${s.tool}</span><span class="ta">(${fmtArgs(s.args)})</span>
+          <span class="tr">${escapeHTML(s.rationale || "")}</span>
+        </div>`
+      ).join("") + `</div>`;
+  }
+
+  if (stage.id === "decide" && stage.data.decision) {
+    const dec = stage.data.decision;
+    const cls = dec === "hitl" ? "warn" : dec === "auto_immediate" ? "pos" : "warn";
+    body += `<div class="trace-kv">
+      <span class="k">decision</span><span class="v ${cls}">${dec.toUpperCase()}</span>
+      <span class="k">timeout</span><span class="v">${stage.data.timeout_sec || 0}s</span>
+    </div>`;
+    body += `<div class="trace-quote">${escapeHTML(stage.data.reason || "")}</div>`;
+  }
+
+  if (stage.id === "execute") {
+    const steps = stage.data.steps || [];
+    const done  = stage.data.steps_done || 0;
+    const total = stage.data.steps_total || steps.length;
+    if (steps.length) {
+      body += `<div class="step-list">` +
+        steps.map((s, i) => {
+          const isDone = i < done;
+          return `<div class="step-row ${isDone ? 'applied' : 'pending'}">
+            <span class="tn">${s.tool}</span><span class="ta">(${fmtArgs(s.args)})</span>
+          </div>`;
+        }).join("") + `</div>`;
+    }
+    if (status === "running" && total > 0) {
+      body += `<div class="exec-progress">▶ applying step ${done}/${total}</div>`;
+    }
+
+    // Countdown + buttons for waiting state
+    if (status === "waiting") {
+      const src = stage.data.source;
+      const total_sec = stage.data.timeout_sec;
+      if (src === "auto_countdown") {
+        const remain = stateModel.countdown_remaining != null
+          ? Math.max(0, stateModel.countdown_remaining)
+          : total_sec;
+        const pct = clamp((remain / total_sec) * 100, 0, 100);
+        body += `<div class="exec-cd">
+          <div class="exec-cd-row"><span>AUTO IN</span><span class="time">${remain.toFixed(0)}s</span></div>
+          <div class="exec-cd-track"><div class="exec-cd-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      } else {
+        body += `<div class="exec-cd">
+          <div class="exec-cd-row" style="color:var(--purple);"><span>OPERATOR REVIEW</span><span class="time">—</span></div>
+          <div class="exec-cd-track"><div class="exec-cd-fill hitl"></div></div>
+        </div>`;
+      }
+      body += `<div class="exec-btns">
+        <button class="px approve" data-act="approve">✓ APPROVE</button>
+        <button class="px dismiss" data-act="dismiss">✕ DISMISS</button>
+      </div>`;
+    }
+    if (status === "done") {
+      body += `<div class="trace-kv">
+        <span class="k">source</span><span class="v">${stage.data.source || "?"}</span>
+        <span class="k">applied</span><span class="v pos">${done}/${total} steps</span>
+      </div>`;
+    }
+    if (status === "dismissed") {
+      body += `<div class="trace-quote">Operator dismissed — plan was not executed.</div>`;
+    }
+  }
+
+  return `<div class="trace-card" data-status="${status}" data-stage="${stage.id}">
+    <div class="trace-head">
+      <span><span class="num">${num}</span><span class="name">${stage.name}</span></span>
+      ${badge}
+    </div>
+    <div class="trace-tool">${escapeHTML(stage.tool)}</div>
+    ${stage.message ? `<div class="trace-msg">${escapeHTML(stage.message)}</div>` : ""}
+    ${body}
+  </div>`;
+}
+
+function renderWorkflow() {
+  const trace = stateModel.trace;
+  if (!trace) return;
+
+  renderPipelineStrip(trace.stages);
+
+  // Header status text
+  const wf = $("wf-status");
+  if (!trace.active) {
+    wf.textContent = "IDLE · MONITORING";
+    wf.style.color = "var(--dim)";
+  } else {
+    const running = trace.stages.find(s => s.status === "running");
+    const waiting = trace.stages.find(s => s.status === "waiting");
+    const incId = trace.incident_id ? ` · ${trace.incident_id}` : "";
+    if (running) {
+      wf.textContent = `STAGE ${running.id.toUpperCase()} · RUNNING${incId}`;
+      wf.style.color = "var(--amber)";
+    } else if (waiting) {
+      wf.textContent = `STAGE ${waiting.id.toUpperCase()} · ${waiting.status.toUpperCase()}${incId}`;
+      wf.style.color = "var(--purple)";
+    } else {
+      wf.textContent = `COMPLETE${incId}`;
+      wf.style.color = "var(--green)";
+    }
+  }
+
+  const wrap = $("trace-cards");
+  if (!trace.active) {
+    wrap.innerHTML = `<div class="trace-empty">
+      <span class="pix">▶ ALL CLEAR</span>
+      Agent is monitoring the greenhouse.<br>
+      Move sliders or press <b>STRESS TEST</b> to engage.
+    </div>`;
+    return;
+  }
+
+  // Severity banner above cards
+  const sev = trace.severity || "nominal";
+  let html = `<div class="sev-banner ${sev}">
+    <span class="lbl">SEVERITY</span>
+    <span class="val">${sev.toUpperCase()}</span>
+  </div>`;
+
+  // Render non-idle stages in order
+  let num = 0;
+  for (const s of trace.stages) {
+    num++;
+    if (s.status === "idle") continue;
+    html += renderTraceCard(num, s);
+  }
+  wrap.innerHTML = html;
+
+  // Wire approve/dismiss buttons (rerendered each tick so re-bind)
+  wrap.querySelectorAll("button[data-act]").forEach(b => {
+    b.addEventListener("click", async () => {
+      const act = b.dataset.act;
+      if (!trace.incident_id) return;
+      b.disabled = true;
+      await fetch(API + `/api/incident/${trace.incident_id}/${act}`, { method:"POST" });
+    });
+  });
+}
+
+function escapeHTML(s) {
+  return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+
+// ===========================================================================
+// API polling + actions
+// ===========================================================================
+async function fetchStatus() {
+  try {
+    const r = await fetch(API + "/api/status");
+    if (!r.ok) throw new Error();
+    const s = await r.json();
+    stateModel.temperature = s.sensors.temperature;
+    stateModel.humidity    = s.sensors.humidity;
+    stateModel.co2         = s.sensors.co2;
+    stateModel.par         = s.sensors.par;
+    stateModel.vpd         = s.vpd;
+    stateModel.tank        = s.sensors.tank_level;
+    stateModel.zone_health = s.zone_health;
+    stateModel.actuator    = s.actuator;
+    stateModel.severity    = s.severity;
+    stateModel.db_mode     = s.db_mode || "?";
+    if (typeof s.dli === "number") stateModel.dli = s.dli;
+    $("led-db").className = "led" + (s.db_mode === "atlas" || s.db_mode === "memory" ? "" : " off");
+    updateGauges();
+    renderZoneHealth();
+  } catch(e) {
+    $("led-db").className = "led off";
+  }
+}
+
+async function fetchIncident() {
+  try {
+    const r = await fetch(API + "/api/incident/latest");
+    const j = await r.json();
+    stateModel.incident = j.incident;
+    stateModel.countdown_remaining = j.incident ? j.incident.countdown_remaining : null;
+  } catch(e) {}
+}
+
+async function fetchTrace() {
+  try {
+    const r = await fetch(API + "/api/agent/trace");
+    if (!r.ok) return;
+    stateModel.trace = await r.json();
+    renderWorkflow();
+  } catch(e) {}
+}
+
+async function postSensor(patch) {
+  try {
+    await fetch(API + "/api/sensor", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(patch),
+    });
+  } catch(e) {}
+}
+
+// ===========================================================================
+// Sliders
+// ===========================================================================
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(()=>fn(...a), ms); }; };
+const debouncedPost = debounce(postSensor, 200);
+let patchBuffer = {};
+
+const SLIDERS = [
+  ["s-temp", "v-temp", "temperature"],
+  ["s-hum",  "v-hum",  "humidity"],
+  ["s-co2",  "v-co2",  "co2"],
+  ["s-par",  "v-par",  "par"],
+  ["s-m0",   "v-m0",   "moisture_seedling"],
+  ["s-m1",   "v-m1",   "moisture_growing"],
+  ["s-m2",   "v-m2",   "moisture_harvest"],
+  ["s-tank", "v-tank", "tank_level"],
+];
+const SLIDER_DEFAULTS = { "s-temp":24, "s-hum":65, "s-co2":800, "s-par":450,
+                          "s-m0":60, "s-m1":55, "s-m2":50, "s-tank":78 };
+
+for (const [sid, vid, key] of SLIDERS) {
+  const s = $(sid), v = $(vid);
+  s.addEventListener("input", () => {
+    v.textContent = s.value;
+    patchBuffer[key] = parseFloat(s.value);
+    debouncedPost({...patchBuffer});
+  });
+}
+
+$("btn-stress").addEventListener("click", () => {
+  postSensor({trigger_stress:true});
+  // visual sync
+  $("s-temp").value = 44; $("v-temp").textContent = "44";
+  $("s-hum").value  = 22; $("v-hum").textContent  = "22";
+  $("s-m0").value = 15; $("v-m0").textContent = "15";
+  $("s-m1").value = 15; $("v-m1").textContent = "15";
+  $("s-m2").value = 15; $("v-m2").textContent = "15";
+});
+
+$("btn-reset").addEventListener("click", async () => {
+  await fetch(API + "/api/reset", {method:"POST"});
+  for (const [sid, vid] of SLIDERS) {
+    $(sid).value = SLIDER_DEFAULTS[sid];
+    $(vid).textContent = SLIDER_DEFAULTS[sid];
+  }
+  patchBuffer = {};
+});
+
+// Approve/Dismiss buttons live inside the EXECUTE trace card — wired up
+// inside renderWorkflow() because the card is re-rendered each tick.
+
+// ===========================================================================
+// SSE log stream
+// ===========================================================================
+const term = $("terminal");
+function appendLog(entry) {
+  const div = document.createElement("div");
+  div.className = "line";
+  const ts = new Date((entry.ts || Date.now()/1000) * 1000)
+                 .toLocaleTimeString([], {hour12:false});
+  div.innerHTML =
+    `<span class="ts">${ts}</span>` +
+    `<span class="tag tag-${entry.tag}">${entry.tag}</span> ` +
+    `<span class="msg">${escapeHTML(entry.message)}</span>`;
+  term.appendChild(div);
+  while (term.childElementCount > 250) term.removeChild(term.firstChild);
+  term.scrollTop = term.scrollHeight;
+}
+function connectSSE() {
+  const es = new EventSource(API + "/api/stream/logs");
+  es.onopen = () => { $("led-stream").className = "led"; stateModel.streamOk = true; };
+  es.onmessage = (e) => { try { appendLog(JSON.parse(e.data)); } catch {} };
+  es.onerror = () => { $("led-stream").className = "led off"; stateModel.streamOk = false;
+                       es.close(); setTimeout(connectSSE, 2000); };
+}
+connectSSE();
+
+// ===========================================================================
+// Clock + polling
+// ===========================================================================
+function updateClock() {
+  setText("clock", new Date().toLocaleTimeString([], {hour12:false}));
+}
+setInterval(updateClock, 1000); updateClock();
+
+setInterval(fetchStatus,   800);
+setInterval(fetchIncident, 600);
+setInterval(fetchTrace,    400);   // poll fast — the workflow trace is the demo's centerpiece
+fetchStatus(); fetchIncident(); fetchTrace();
+</script>
+</body>
+</html>

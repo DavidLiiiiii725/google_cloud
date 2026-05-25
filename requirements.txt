@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pymongo==4.10.1
+python-dotenv==1.0.1
+google-genai==0.3.0
+google-cloud-storage==2.18.2
+pydantic==2.10.3
+Pillow==11.0.0
+sse-starlette==2.1.3

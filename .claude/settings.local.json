@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python --version; python -m venv E:\\\\google_cloud\\\\.venv; \"venv created\")",
+      "Bash(E:/google_cloud/.venv/Scripts/python.exe *)",
+      "Bash(./.venv/Scripts/python.exe *)",
+      "Bash(tee /tmp/uvicorn.log)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/sensor -H \"Content-Type: application/json\" -d '{\"trigger_stress\": true}')",
+      "Bash(curl -s http://127.0.0.1:8000/api/status)",
+      "Bash(curl -s http://127.0.0.1:8000/api/incident/latest)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/incident/inc-d07225fc/approve)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/reset)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:d[k] for k in ['severity','incident_id','zone_health']}, indent=2\\)\\); print\\('temp=',d['sensors']['temperature'],'hum=',d['sensors']['humidity']\\)\")",
+      "Bash(timeout 3 curl -sN http://127.0.0.1:8000/api/stream/logs)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/sensor -H \"Content-Type: application/json\" -d '{\"trigger_stress\":true}')",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); a=d['actuator']; print\\('sev=',d['severity'],'inc=',d['incident_id'],'health=',d['zone_health'],'vent=',a['vent_pct']\\)\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(curl -s http://127.0.0.1:8000/api/agent/trace)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}

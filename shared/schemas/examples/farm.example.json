@@ -1,0 +1,27 @@
+{
+  "_id": "farm-eldoret-01",
+  "scenario_id": "default",
+  "name": "Eldoret North Co-op",
+  "location": { "lat": 0.5143, "lng": 35.2698, "label": "Eldoret North" },
+  "access": "open",
+  "yield_status": "normal",
+  "stock": [
+    {
+      "sku": "tomato-loose", "crop": "tomato",
+      "quantity_kg": 320, "volume_l": 480, "packing": "loose",
+      "fragile": true, "stackable": false,
+      "perishable": true, "refrigerated": false,
+      "ready_at": 1749648600, "deadline_at": 1749684600
+    },
+    {
+      "sku": "avocado-crate", "crop": "avocado",
+      "quantity_kg": 540, "volume_l": 600, "packing": "crate",
+      "fragile": false, "stackable": true,
+      "perishable": true, "refrigerated": true,
+      "ready_at": 1749648600, "deadline_at": 1749720600
+    }
+  ],
+  "access_window": { "open_at": 1749646800, "close_at": 1749693600 },
+  "updated_at": 1749645000.0,
+  "updated_by": "farmer"
+}

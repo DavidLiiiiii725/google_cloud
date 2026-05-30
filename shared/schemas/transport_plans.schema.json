@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "transport_plan",
+  "description": "A finalized routing plan written by the Transport Agent and consumed by the Merchant Agent. Each re-plan is a NEW document tagged replan_of the prior, so the before/after diff is preserved for the demo.",
+  "type": "object",
+  "required": ["_id", "scenario_id", "status", "vehicles", "unrouted", "cost", "reasoning", "updated_at", "updated_by"],
+  "additionalProperties": false,
+  "properties": {
+    "_id": { "type": "string", "description": "e.g. 'plan-7f3a9c'" },
+    "scenario_id": { "type": "string", "default": "default" },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "committed", "superseded"],
+      "description": "committed = current truth for the Merchant; superseded = replaced by a re-plan."
+    },
+    "replan_of": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "_id of the plan this replaces. null for the initial plan. Set on storm re-plan."
+    },
+    "trigger": {
+      "type": "string",
+      "enum": ["initial", "storm_replan", "manual"],
+      "description": "Why this plan was produced. 'storm_replan' references a world_event."
+    },
+    "world_event_id": { "type": ["string", "null"], "default": null },
+    "vehicles": {
+      "type": "array",
+      "description": "Assigned vehicles with ordered stops. Empty array is valid (all farms wiped out).",
+      "items": {
+        "type": "object",
+        "required": ["vehicle_id", "capacity_kg", "capacity_l", "refrigerated", "stops"],
+        "properties": {
+          "vehicle_id": { "type": "string" },
+          "capacity_kg": { "type": "number" },
+          "capacity_l": { "type": "number" },
+          "refrigerated": { "type": "boolean" },
+          "stops": {
+            "type": "array",
+            "description": "Ordered pickup stops for this vehicle.",
+            "items": {
+              "type": "object",
+              "required": ["seq", "farm_id", "eta", "pickups"],
+              "properties": {
+                "seq": { "type": "integer", "minimum": 0 },
+                "farm_id": { "type": "string" },
+                "eta": { "type": "number", "description": "epoch secs estimated arrival" },
+                "pickups": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["sku", "quantity_kg"],
+                    "properties": {
+                      "sku": { "type": "string" },
+                      "quantity_kg": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "load_class": {
+            "type": "string",
+            "enum": ["ambient", "refrigerated", "mixed-compatible"],
+            "description": "Result of the agent's compatibility reasoning, surfaced for the judge."
+          }
+        }
+      }
+    },
+    "unrouted": {
+      "type": "array",
+      "description": "Farms/SKUs that COULD NOT be served (blocked road, no capacity, missed deadline). Flagged, never silently dropped.",
+      "items": {
+        "type": "object",
+        "required": ["farm_id", "reason"],
+        "properties": {
+          "farm_id": { "type": "string" },
+          "sku": { "type": "string" },
+          "reason": { "type": "string", "enum": ["access_blocked", "no_capacity", "deadline_unmeetable", "incompatible_load"] }
+        }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "required": ["total_cents"],
+      "description": "Cost breakdown in integer cents. Fixed per-vehicle + distance at minimum.",
+      "properties": {
+        "total_cents": { "type": "integer" },
+        "fixed_cents": { "type": "integer", "description": "sum of per-vehicle fixed costs" },
+        "distance_cents": { "type": "integer" },
+        "refrigeration_cents": { "type": "integer", "description": "optional surcharge" }
+      }
+    },
+    "reasoning": {
+      "type": "object",
+      "description": "The agent's visible reasoning trace — THIS is what makes it an agent, not just a solver. Keep populated.",
+      "properties": {
+        "compatibility_groups": {
+          "type": "array",
+          "description": "How the agent grouped stock into co-loadable sets and why.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": { "type": "string" },
+              "skus": { "type": "array", "items": { "type": "string" } },
+              "rule": { "type": "string", "description": "e.g. 'refrigerated kept separate from ambient'" }
+            }
+          }
+        },
+        "objective": { "type": "string", "description": "what was optimized, e.g. 'minimize fixed+distance cost'" },
+        "sanity_checks": {
+          "type": "array",
+          "description": "Checks run on the optimizer output before commit.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "check": { "type": "string" },
+              "passed": { "type": "boolean" },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "replan_diff": {
+          "type": ["object", "null"],
+          "description": "Populated only on storm_replan. The before/after the judge sees.",
+          "properties": {
+            "stops_before": { "type": "integer" },
+            "stops_after": { "type": "integer" },
+            "vehicles_before": { "type": "integer" },
+            "vehicles_after": { "type": "integer" },
+            "cost_before_cents": { "type": "integer" },
+            "cost_after_cents": { "type": "integer" },
+            "summary": { "type": "string", "description": "one human sentence, e.g. '2 trucks -> 1 rerouted; farm-03 unreachable, dropped'" }
+          }
+        }
+      }
+    },
+    "updated_at": { "type": "number" },
+    "updated_by": { "type": "string", "enum": ["transport"] }
+  }
+}

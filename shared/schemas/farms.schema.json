@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "farm",
+  "description": "One smallholder farm's current harvestable state. Written by the Farmer Agent; read by Transport and Merchant. One document per farm per scenario.",
+  "type": "object",
+  "required": ["_id", "scenario_id", "name", "location", "stock", "access", "updated_at", "updated_by"],
+  "additionalProperties": false,
+  "properties": {
+    "_id": { "type": "string", "description": "e.g. 'farm-eldoret-01'" },
+    "scenario_id": { "type": "string", "default": "default" },
+    "name": { "type": "string" },
+    "location": {
+      "type": "object",
+      "required": ["lat", "lng"],
+      "properties": {
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "label": { "type": "string", "description": "human-readable, e.g. 'Eldoret North'" }
+      }
+    },
+    "access": {
+      "type": "string",
+      "enum": ["open", "restricted", "blocked"],
+      "description": "Road access. 'blocked' after a storm => Transport must flag, not crash. 'restricted' => reachable but slower/limited window."
+    },
+    "yield_status": {
+      "type": "string",
+      "enum": ["normal", "reduced", "destroyed"],
+      "default": "normal",
+      "description": "Set by Farmer Agent. 'reduced'/'destroyed' after storm => Transport re-plans."
+    },
+    "stock": {
+      "type": "array",
+      "description": "Harvestable lots ready for pickup. Empty array = nothing to collect (valid post-storm state).",
+      "items": {
+        "type": "object",
+        "required": ["sku", "crop", "quantity_kg", "volume_l", "perishable", "refrigerated"],
+        "additionalProperties": false,
+        "properties": {
+          "sku": { "type": "string", "description": "e.g. 'tomato-loose', 'avocado-crate'" },
+          "crop": { "type": "string" },
+          "quantity_kg": { "type": "number", "minimum": 0 },
+          "volume_l": { "type": "number", "minimum": 0, "description": "stacked volume incl. packing" },
+          "packing": {
+            "type": "string",
+            "enum": ["loose", "crate", "sack", "carton", "pallet"],
+            "description": "Drives load-compatibility reasoning (loose/fragile can't go under heavy crates)."
+          },
+          "fragile": { "type": "boolean", "default": false },
+          "stackable": { "type": "boolean", "default": true },
+          "perishable": { "type": "boolean" },
+          "refrigerated": { "type": "boolean", "description": "needs cold chain; kept separate from ambient loads" },
+          "ready_at": { "type": "number", "description": "epoch secs; earliest pickup time" },
+          "deadline_at": { "type": "number", "description": "epoch secs; perishability / market deadline" }
+        }
+      }
+    },
+    "access_window": {
+      "type": "object",
+      "description": "Farm gate hours for pickup.",
+      "properties": {
+        "open_at": { "type": "number" },
+        "close_at": { "type": "number" }
+      }
+    },
+    "updated_at": { "type": "number" },
+    "updated_by": { "type": "string", "enum": ["farmer", "orchestrator"] }
+  }
+}

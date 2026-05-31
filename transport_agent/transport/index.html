@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Transport Agent · Logistics Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg:#070a10;            --bg-grad:#0e1320;
+    --panel:#141a26;         --panel-hi:#1d2536;
+    --border:#2a3245;        --border-hi:#3e4c6b;
+    --text:#e7edf9;          --dim:#8593b0;          --label:#a0afcc;
+    --accent:#5cf0ff;        --accent-dim:#2c7a8a;
+    --green:#5fff7a;         --green-dim:#27572c;
+    --amber:#ffd24a;         --amber-dim:#7a5a14;
+    --red:#ff5a4a;           --red-dim:#5a1d18;
+    --purple:#c98bff;
+    --term-bg:#04090b;       --term-text:#5fff7a;
+  }
+  *, *::before, *::after { box-sizing:border-box; }
+  html, body {
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:'VT323', monospace; font-size:17px;
+    min-height:100vh;
+    background:linear-gradient(180deg, var(--bg) 0%, var(--bg-grad) 100%);
+  }
+  .pixel { font-family:'Press Start 2P', monospace; }
+  #app { max-width:1180px; margin:0 auto; padding:10px; display:flex; flex-direction:column; gap:8px; }
+
+  #header {
+    display:flex; align-items:center; gap:14px; padding:10px 14px;
+    background:var(--panel); border:2px solid var(--border); border-bottom:3px solid var(--border-hi);
+  }
+  #brand { font-family:'Press Start 2P'; font-size:12px; color:var(--accent); letter-spacing:2px; }
+  #brand::before { content:"▣"; margin-right:8px; color:var(--green); }
+  #status-pill {
+    font-family:'Press Start 2P'; font-size:9px; padding:7px 12px;
+    border:2px solid var(--green-dim); background:#0a1a0e; color:var(--green); letter-spacing:1px;
+  }
+  #status-pill.storm { border-color:var(--red); background:#1f0a07; color:var(--red); animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 currentColor;} 50%{box-shadow:0 0 12px 2px currentColor;} }
+  #meta { margin-left:auto; display:flex; gap:14px; font-family:'Press Start 2P'; font-size:8px; color:var(--dim); align-items:center; }
+  .btn {
+    font-family:'Press Start 2P'; font-size:9px; padding:9px 12px; cursor:pointer;
+    background:var(--panel-hi); color:var(--accent); border:2px solid var(--accent-dim); letter-spacing:1px;
+  }
+  .btn:hover { background:#10202a; }
+  .btn.storm { color:var(--red); border-color:var(--red-dim); }
+  .btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+  .panel { background:var(--panel); border:2px solid var(--border); border-bottom:3px solid var(--border-hi); padding:12px; }
+  .panel h2 { font-family:'Press Start 2P'; font-size:10px; color:var(--label); margin:0 0 12px; letter-spacing:1px; }
+
+  /* stages */
+  .stage { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
+  .stage:last-child { border-bottom:none; }
+  .stage .dot { width:10px; height:10px; flex-shrink:0; background:#333; }
+  .stage.running .dot { background:var(--amber); box-shadow:0 0 8px var(--amber); animation:pulse 0.8s infinite; }
+  .stage.done .dot { background:var(--green); box-shadow:0 0 6px var(--green); }
+  .stage.failed .dot { background:var(--red); }
+  .stage .nm { font-family:'Press Start 2P'; font-size:8px; color:var(--text); width:120px; flex-shrink:0; }
+  .stage .msg { font-size:15px; color:var(--dim); flex:1; }
+
+  /* trucks */
+  .truck { border:1px solid var(--border-hi); background:#0c111b; padding:9px; margin-bottom:8px; }
+  .truck-hd { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .truck-id { font-family:'Press Start 2P'; font-size:8px; color:var(--accent); }
+  .tag { font-family:'Press Start 2P'; font-size:7px; padding:3px 6px; letter-spacing:1px; }
+  .tag.cold { background:#06222b; color:var(--accent); border:1px solid var(--accent-dim); }
+  .tag.ambient { background:#1a1407; color:var(--amber); border:1px solid var(--amber-dim); }
+  .stop { font-size:15px; color:var(--text); padding:3px 0; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .stop .seq { font-family:'Press Start 2P'; font-size:8px; color:#04090b; background:var(--green);
+               width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .stop .farm { color:var(--text); }
+  .stop .eta { color:var(--amber); font-size:13px; margin-left:auto; }
+  .stop .leg-info { color:var(--accent); font-size:12px; }
+  .route-total { color:var(--green); font-size:12px; margin-left:8px; }
+  .stop .items { width:100%; padding-left:26px; color:var(--dim); font-size:13px; }
+  .stop .load { color:var(--accent-dim); }
+  .depot { font-family:'Press Start 2P'; font-size:8px; color:var(--accent); padding:3px 0; letter-spacing:1px; }
+  .depot .dim { color:var(--dim); }
+  .leg { width:2px; height:12px; background:var(--border-hi); margin-left:8px; }
+  .route-meta { color:var(--dim); font-size:13px; margin-left:auto; }
+  .dim { color:var(--dim); }
+
+  .group { font-size:15px; padding:4px 0; color:var(--text); }
+  .group .gn { color:var(--purple); }
+  .group .rule { color:var(--dim); font-size:13px; }
+
+  .check { font-size:15px; padding:3px 0; }
+  .check.ok::before { content:"✓ "; color:var(--green); }
+  .check.bad::before { content:"✗ "; color:var(--red); }
+
+  .unrouted { font-size:15px; color:var(--red); padding:3px 0; }
+
+  /* metric cards */
+  .metrics { display:flex; gap:8px; }
+  .metric { flex:1; background:#0c111b; border:1px solid var(--border); padding:9px; text-align:center; }
+  .metric .v { font-family:'Press Start 2P'; font-size:14px; color:var(--accent); }
+  .metric .l { font-size:13px; color:var(--dim); margin-top:5px; }
+
+  /* diff */
+  #diff-panel { border-color:var(--red-dim); }
+  .diff-row { display:flex; align-items:center; gap:10px; padding:5px 0; font-size:16px; }
+  .diff-row .k { color:var(--label); width:90px; }
+  .diff-row .before { color:var(--dim); }
+  .diff-row .arrow { color:var(--red); }
+  .diff-row .after { color:var(--green); font-family:'Press Start 2P'; font-size:9px; }
+  .diff-summary { margin-top:10px; padding:9px; background:#1f0a07; border:1px solid var(--red-dim); color:var(--amber); font-size:15px; }
+
+  .empty { color:var(--dim); font-size:15px; padding:8px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <span id="brand">TRANSPORT AGENT</span>
+    <span id="status-pill">● OPERATIONAL</span>
+    <div id="meta">
+      <span id="dbmode">DB: ?</span>
+      <button class="btn" id="btn-plan">BUILD PLAN</button>
+      <button class="btn storm" id="btn-storm">⚡ FIRE STORM</button>
+    </div>
+  </div>
+
+  <div class="metrics" id="metrics"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>AGENT REASONING</h2>
+      <div id="stages"></div>
+    </div>
+    <div class="panel">
+      <h2>LOAD COMPATIBILITY</h2>
+      <div id="groups"><div class="empty">No plan yet.</div></div>
+      <h2 style="margin-top:14px;">SANITY CHECKS</h2>
+      <div id="checks"><div class="empty">—</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>ROUTE MAP</h2>
+    <div id="map" style="height:420px; width:100%; background:#0c111b; border:1px solid var(--border);"></div>
+    <div id="map-legend" style="margin-top:8px; font-size:13px; color:var(--dim);"></div>
+  </div>
+
+  <div class="panel">
+    <h2>OPTIMIZED ROUTES &amp; LOADS</h2>
+    <div id="trucks"><div class="empty">Build a plan to see consolidated routes.</div></div>
+    <div id="unrouted"></div>
+  </div>
+
+  <div class="panel" id="diff-panel" style="display:none;">
+    <h2 style="color:var(--red);">⚡ STORM RE-PLAN · BEFORE → AFTER</h2>
+    <div id="diff"></div>
+  </div>
+</div>
+
+<script>
+const API = location.origin.includes("file") ? "http://localhost:8001" : (location.origin.includes(":8001") ? "" : "http://localhost:8001");
+const $ = id => document.getElementById(id);
+const cents = c => "$" + (c/100).toFixed(2);
+const fmtETA = ts => {
+  if (!ts) return "";
+  const d = new Date(ts*1000);
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12:false});
+};
+
+const STAGE_DEFS = [
+  ["read","READ FARMS"], ["compat","COMPATIBILITY"], ["formulate","FORMULATE"],
+  ["optimize","OPTIMIZE"], ["sanity","SANITY CHECK"]
+];
+
+async function getJSON(path, opts) {
+  const r = await fetch(API + path, opts);
+  return r.json();
+}
+
+function renderStages(trace) {
+  const byId = {}; (trace.stages||[]).forEach(s => byId[s.id]=s);
+  $("stages").innerHTML = STAGE_DEFS.map(([id,nm]) => {
+    const s = byId[id] || {status:"idle", message:""};
+    return `<div class="stage ${s.status}"><span class="dot"></span>
+      <span class="nm">${nm}</span><span class="msg">${s.message||""}</span></div>`;
+  }).join("");
+}
+
+function renderPlan(plan) {
+  if (!plan) { return; }
+  const r = plan.reasoning || {};
+
+  // metrics
+  const stops = (plan.vehicles||[]).reduce((a,v)=>a+(v.stops||[]).length,0);
+  const fleetDist = (plan.vehicles||[]).reduce((a,v)=>a+(v.route_distance_m||0),0);
+  const fleetDur = (plan.vehicles||[]).reduce((a,v)=>a+(v.route_duration_s||0),0);
+  const fmtTotalTime = s => { const h=Math.floor(s/3600), m=Math.round((s%3600)/60); return h>0?`${h}h ${m}m`:`${m}m`; };
+  $("metrics").innerHTML = [
+    [plan.vehicles.length, "VEHICLES"], [stops, "STOPS"],
+    [cents(plan.cost.total_cents), "TOTAL COST"], [plan.unrouted.length, "UNROUTED"],
+    [(fleetDist/1000).toFixed(1)+" km", "TOTAL DISTANCE"], [fmtTotalTime(fleetDur), "TOTAL TIME"]
+  ].map(([v,l])=>`<div class="metric"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+
+  // groups
+  $("groups").innerHTML = (r.compatibility_groups||[]).map(g =>
+    `<div class="group"><span class="gn">${g.group}</span>: ${(g.skus||[]).join(", ")}
+     <div class="rule">↳ ${g.rule||""}</div></div>`).join("") || '<div class="empty">—</div>';
+
+  // checks
+  $("checks").innerHTML = (r.sanity_checks||[]).map(c =>
+    `<div class="check ${c.passed?'ok':'bad'}">${c.check} <span style="color:var(--dim)">— ${c.note||""}</span></div>`
+  ).join("") || '<div class="empty">—</div>';
+
+  // trucks — render as an ORDERED ROUTE: depot → stop 1 → stop 2 → … → depot
+  const km = m => (m/1000).toFixed(1) + " km";
+  const mins = s => Math.round(s/60) + " min";
+  $("trucks").innerHTML = (plan.vehicles||[]).map(v => {
+    const cls = v.refrigerated ? "cold" : "ambient";
+    const ordered = (v.stops||[]).slice().sort((a,b)=>(a.seq||0)-(b.seq||0));
+    let load = 0;
+    const route = ordered.map(s => {
+      const kg = (s.pickups||[]).reduce((a,p)=>a+(p.quantity_kg||0),0);
+      load += kg;
+      const items = (s.pickups||[]).map(p=>p.sku+" "+Math.round(p.quantity_kg)+"kg").join(", ");
+      const leg = (s.leg_distance_m!=null)
+        ? `<span class="leg-info">${km(s.leg_distance_m)} · ${mins(s.leg_duration_s)}</span>` : "";
+      return `<div class="stop">
+        <span class="seq">${(s.seq??0)+1}</span>
+        <span class="farm">${s.farm_id}</span>
+        ${leg}
+        <span class="eta">${fmtETA(s.eta)}</span>
+        <div class="items">${items} <span class="load">· load ${Math.round(load)}/${v.capacity_kg}kg</span></div>
+      </div>`;
+    }).join('<div class="leg"></div>');
+    const totals = (v.route_distance_m!=null)
+      ? `<span class="route-total">${km(v.route_distance_m)} · ${mins(v.route_duration_s)}</span>` : "";
+    const depotIn  = `<div class="depot">▣ DEPOT <span class="dim">· start</span></div>`;
+    const depotOut = `<div class="depot">▣ DEPOT <span class="dim">· return</span> ${totals}</div>`;
+    const body = ordered.length
+      ? depotIn + '<div class="leg"></div>' + route + '<div class="leg"></div>' + depotOut
+      : `<div class="empty">no stops</div>`;
+    return `<div class="truck"><div class="truck-hd">
+      <span class="truck-id">${v.vehicle_id}</span>
+      <span class="tag ${cls}">${(v.load_class||cls).toUpperCase()}</span>
+      <span class="route-meta">${ordered.length} stops · cap ${v.capacity_kg}kg</span>
+      </div><div class="route">${body}</div></div>`;
+  }).join("") || '<div class="empty">Empty plan — no servable farms.</div>';
+
+  // unrouted
+  $("unrouted").innerHTML = (plan.unrouted||[]).map(u =>
+    `<div class="unrouted">⚠ ${u.farm_id}${u.sku?(" / "+u.sku):""} — ${u.reason}</div>`).join("");
+
+  // diff
+  if (r.replan_diff) {
+    const d = r.replan_diff;
+    $("diff-panel").style.display = "block";
+    $("diff").innerHTML = `
+      <div class="diff-row"><span class="k">Vehicles</span><span class="before">${d.vehicles_before}</span><span class="arrow">→</span><span class="after">${d.vehicles_after}</span></div>
+      <div class="diff-row"><span class="k">Stops</span><span class="before">${d.stops_before}</span><span class="arrow">→</span><span class="after">${d.stops_after}</span></div>
+      <div class="diff-row"><span class="k">Cost</span><span class="before">${cents(d.cost_before_cents)}</span><span class="arrow">→</span><span class="after">${cents(d.cost_after_cents)}</span></div>
+      <div class="diff-summary">↳ ${d.summary||""}</div>`;
+  }
+}
+
+// ─── MAP ───────────────────────────────────────────────────────────────
+let map = null, mapLayer = null;
+const TRUCK_COLORS = ["#5cf0ff", "#5fff7a", "#ffd24a", "#c98bff", "#ff8a5c"];
+const stripSuffix = id => id.replace(/-(cold|ambient)$/, "");
+
+function initMap() {
+  if (map) return;
+  map = L.map('map', { zoomControl: true, attributionControl: false }).setView([0.45, 35.3], 9);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19, subdomains: 'abcd'
+  }).addTo(map);
+}
+
+function renderMap(plan, farms) {
+  initMap();
+  if (mapLayer) { map.removeLayer(mapLayer); }
+  mapLayer = L.layerGroup().addTo(map);
+
+  const byId = {};
+  farms.forEach(f => { byId[f.id] = f; });
+
+  // farm pins
+  const pts = [];
+  farms.forEach(f => {
+    const blocked = f.access === "blocked";
+    const color = blocked ? "#ff5a4a" : "#5fff7a";
+    L.circleMarker([f.lat, f.lng], {
+      radius: 7, color: color, weight: 2, fillColor: color, fillOpacity: blocked ? 0.25 : 0.7
+    }).bindTooltip(`${f.name}${blocked ? " ⚠ BLOCKED" : ""}`, {permanent:false}).addTo(mapLayer);
+    pts.push([f.lat, f.lng]);
+  });
+
+  // route lines, one color per vehicle
+  (plan.vehicles || []).forEach((v, vi) => {
+    const color = TRUCK_COLORS[vi % TRUCK_COLORS.length];
+    const ordered = (v.stops || []).slice().sort((a,b)=>(a.seq||0)-(b.seq||0));
+    const line = [];
+    ordered.forEach(s => {
+      const f = byId[stripSuffix(s.farm_id)];
+      if (f) line.push([f.lat, f.lng]);
+    });
+    if (line.length) {
+      L.polyline(line, { color, weight: 3, opacity: 0.85 }).addTo(mapLayer);
+      // numbered stop markers
+      line.forEach((pt, i) => {
+        L.marker(pt, { icon: L.divIcon({
+          className: '', html: `<div style="background:${color};color:#04090b;font:bold 11px monospace;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:2px;">${i+1}</div>`,
+          iconSize: [18,18], iconAnchor: [9,9]
+        })}).addTo(mapLayer);
+      });
+    }
+  });
+
+  if (pts.length) { map.fitBounds(pts, { padding: [40,40], maxZoom: 10 }); }
+
+  // legend
+  $("map-legend").innerHTML = (plan.vehicles||[]).map((v,vi) =>
+    `<span style="color:${TRUCK_COLORS[vi%TRUCK_COLORS.length]};">■</span> ${v.vehicle_id}`
+  ).join(" &nbsp; ") + ' &nbsp; <span style="color:#ff5a4a;">●</span> blocked farm';
+}
+
+async function refresh() {
+  try {
+    const h = await getJSON("/api/transport/health");
+    $("dbmode").textContent = "DB: " + (h.db_mode||"?").toUpperCase();
+    const trace = await getJSON("/api/transport/trace");
+    renderStages(trace);
+    if (trace.trigger === "storm_replan") $("status-pill").className = "storm", $("status-pill").textContent = "⚡ STORM ACTIVE";
+    const {plan} = await getJSON("/api/transport/plan/latest");
+    renderPlan(plan);
+    if (plan) {
+      const key = plan._id + ":" + (plan.reasoning && plan.reasoning.replan_diff ? "r" : "i");
+      if (key !== lastMapKey) {
+        lastMapKey = key;
+        const {farms} = await getJSON("/api/transport/farms");
+        renderMap(plan, farms || []);
+      }
+    }
+  } catch(e) { $("dbmode").textContent = "DB: OFFLINE"; }
+}
+let lastMapKey = null;
+
+$("btn-plan").onclick = async () => {
+  $("btn-plan").disabled = true;
+  await getJSON("/api/transport/plan", {method:"POST"});
+  $("btn-plan").disabled = false;
+};
+$("btn-storm").onclick = async () => {
+  $("btn-storm").disabled = true;
+  await getJSON("/api/transport/replan", {method:"POST"});
+  $("btn-storm").disabled = false;
+};
+
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

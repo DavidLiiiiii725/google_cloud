@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "world_event",
+  "description": "A disruption event written by the orchestrator. Agents READ this and react; they never write it. The storm is the throughline of the whole demo.",
+  "type": "object",
+  "required": ["_id", "scenario_id", "type", "status", "created_at", "updated_by"],
+  "additionalProperties": false,
+  "properties": {
+    "_id": { "type": "string", "description": "e.g. 'evt-storm-01'" },
+    "scenario_id": { "type": "string", "default": "default" },
+    "type": { "type": "string", "enum": ["storm", "heatwave", "flood", "clear"] },
+    "status": { "type": "string", "enum": ["active", "passed"] },
+    "severity": { "type": "string", "enum": ["warning", "critical", "catastrophic"] },
+    "affected_area": {
+      "type": "object",
+      "description": "Optional geofence so only some farms react.",
+      "properties": {
+        "center": { "type": "object", "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } } },
+        "radius_m": { "type": "number" }
+      }
+    },
+    "effects": {
+      "type": "object",
+      "description": "Hints agents may use. Each agent decides how to interpret in its own domain.",
+      "properties": {
+        "yield_multiplier": { "type": "number", "description": "e.g. 0.6 => 40% yield loss for affected farms" },
+        "roads_blocked": { "type": "array", "items": { "type": "string" }, "description": "farm_ids cut off" }
+      }
+    },
+    "created_at": { "type": "number" },
+    "updated_at": { "type": "number" },
+    "updated_by": { "type": "string", "enum": ["orchestrator"] }
+  }
+}

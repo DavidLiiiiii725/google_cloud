@@ -16,7 +16,7 @@ import math
 from fastapi import FastAPI
 from pydantic import BaseModel
 from ortools.constraint_solver import routing_enums_pb2, pywrapcp
-import routes_client
+from . import routes_client
 
 app = FastAPI(title="route-optimizer")
 

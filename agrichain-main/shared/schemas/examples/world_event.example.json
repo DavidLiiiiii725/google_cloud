@@ -1,0 +1,12 @@
+{
+  "_id": "evt-storm-01",
+  "scenario_id": "default",
+  "type": "storm",
+  "status": "active",
+  "severity": "critical",
+  "affected_area": { "center": { "lat": 0.5143, "lng": 35.2698 }, "radius_m": 40000 },
+  "effects": { "yield_multiplier": 0.6, "roads_blocked": ["farm-kapsabet-03"] },
+  "created_at": 1749651000.0,
+  "updated_at": 1749651000.0,
+  "updated_by": "orchestrator"
+}

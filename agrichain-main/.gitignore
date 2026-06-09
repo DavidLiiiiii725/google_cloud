@@ -1,6 +1,5 @@
 .env
 .venv/
-.localdb/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -8,3 +7,9 @@ __pycache__/
 .deepseek/
 *.log
 .DS_Store
+**/.env
+**/.venv/
+**/__pycache__/
+*.pyc
+.adk/
+**/.adk/

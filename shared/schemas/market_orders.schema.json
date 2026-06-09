@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "market_order",
+  "description": "An allocation + pricing decision written by the Merchant Agent. The Merchant reads the committed transport_plan (which farms were actually routed) joined with farms (their crop stock), allocates the arriving supply across competing buyers by priority, and prices the shortfall. Each storm reallocation is a NEW document that supersedes the prior, so the before/after fill-rate and revenue diff is preserved for the demo.",
+  "type": "object",
+  "required": ["_id", "scenario_id", "status", "supply", "allocations", "fulfillment", "reasoning", "updated_at", "updated_by"],
+  "additionalProperties": true,
+  "properties": {
+    "_id": { "type": "string", "description": "e.g. 'order-7f3a9c'" },
+    "scenario_id": { "type": "string", "default": "default" },
+    "status": {
+      "type": "string",
+      "enum": ["committed", "superseded"],
+      "description": "committed = current truth; superseded = replaced by a reallocation."
+    },
+    "from_plan": { "type": ["string", "null"], "description": "_id of the transport_plan this allocation consumed." },
+    "trigger": { "type": "string", "enum": ["initial", "manual", "replan", "storm_reallocate"] },
+    "world_event_id": { "type": ["string", "null"] },
+    "replaces": { "type": ["string", "null"], "description": "_id of the order this supersedes." },
+    "supply": {
+      "type": "object",
+      "description": "crop -> kg that actually arrived (from routed farms only).",
+      "additionalProperties": { "type": "number" }
+    },
+    "served_farms": { "type": "array", "items": { "type": "string" } },
+    "cut_off_farms": {
+      "type": "array",
+      "description": "Farms on the blackboard that were NOT routed (blocked/destroyed by the storm) — the lost supply.",
+      "items": { "type": "object" }
+    },
+    "allocations": {
+      "type": "array",
+      "description": "One line per (buyer, crop): how much of their order was filled and at what price.",
+      "items": {
+        "type": "object",
+        "required": ["buyer_id", "crop", "requested_kg", "allocated_kg", "unit_price_cents"],
+        "properties": {
+          "buyer_id": { "type": "string" },
+          "buyer_name": { "type": "string" },
+          "channel": { "type": "string" },
+          "priority": { "type": "integer" },
+          "crop": { "type": "string" },
+          "requested_kg": { "type": "number" },
+          "allocated_kg": { "type": "number" },
+          "fill_rate": { "type": "number" },
+          "unit_price_cents": { "type": "integer" },
+          "line_total_cents": { "type": "integer" },
+          "status": { "type": "string", "enum": ["filled", "partial", "unfilled"] }
+        }
+      }
+    },
+    "crop_summary": {
+      "type": "array",
+      "description": "Per-crop arriving vs requested vs allocated, with the scarcity multiplier applied.",
+      "items": { "type": "object" }
+    },
+    "fulfillment": {
+      "type": "object",
+      "required": ["requested_kg", "allocated_kg", "fill_rate"],
+      "properties": {
+        "requested_kg": { "type": "number" },
+        "allocated_kg": { "type": "number" },
+        "fill_rate": { "type": "number" },
+        "unmet_kg": { "type": "number" }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "properties": {
+        "scarce_crops": { "type": "array", "items": { "type": "string" } },
+        "max_multiplier": { "type": "number" }
+      }
+    },
+    "revenue_cents": { "type": "integer" },
+    "reasoning": {
+      "type": "object",
+      "description": "The agent's visible reasoning — strategy + a natural-language rationale (Gemini, with a templated fallback).",
+      "properties": {
+        "strategy": { "type": "string" },
+        "rationale": { "type": "string" },
+        "gemini_source": { "type": "string", "enum": ["gemini", "fallback"] },
+        "gemini_model": { "type": "string" },
+        "replan_diff": {
+          "type": ["object", "null"],
+          "description": "Populated on a reallocation — the before/after the judge sees.",
+          "properties": {
+            "fill_before": { "type": "number" },
+            "fill_after": { "type": "number" },
+            "revenue_before_cents": { "type": "integer" },
+            "revenue_after_cents": { "type": "integer" },
+            "summary": { "type": "string" }
+          }
+        }
+      }
+    },
+    "updated_at": { "type": "number" },
+    "updated_by": { "type": "string", "enum": ["merchant"] }
+  }
+}

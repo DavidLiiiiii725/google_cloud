@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from . import db, state, events, rules, confidence, gemini_client, images, approve, workflow
+from . import db, state, events, rules, confidence, gemini_client, images, approve, workflow, farm_publish
 
 # Per-stage pause so the audience can read each step lighting up.
 # 0 to disable. 0.4s × 5 stages ≈ 2s added — well within demo budget.
@@ -55,6 +55,12 @@ async def execute_plan(incident_id: str, source: str):
     _last_execution_at = time.time()
     state.set_incident_id(None)
     approve.cancel_countdown(incident_id)
+    # Publish updated yield to the supply-chain blackboard so the Transport Agent
+    # can re-plan if the storm-driven drop just settled.
+    try:
+        farm_publish.publish_farm()
+    except Exception as e:
+        events.emit("INFO", f"farm_publish failed: {e}")
 
 
 def _apply_tool(tool: str, args: dict):
@@ -223,13 +229,28 @@ async def run_cycle(stress_test: bool = False):
         }
         db.live_telemetry().insert_one(tele)
 
+        # Push current yield to the supply-chain blackboard. The publisher dedupes
+        # by zone-health delta so non-meaningful 2s heartbeats don't churn the DB.
+        try:
+            farm_publish.publish_farm()
+        except Exception as e:
+            events.emit("INFO", f"farm_publish failed: {e}")
+
         if sev == "nominal":
             auto_shutoff_actuators(sev)
-            # If we had an active incident, mark it stale
+            # If we had an active incident, mark it stale — UNLESS it's still awaiting a
+            # human decision. An operator-review incident must persist (and keep its
+            # APPROVE button live) even if passive physics drifts the sensors back to
+            # nominal; otherwise the incident vanishes before the operator can act.
             if state.get_incident_id():
-                events.emit("INFO", "Conditions returned to nominal — closing prior incident")
-                db.incidents().update_one({"_id": state.get_incident_id()}, {"$set": {"status": "resolved"}})
-                state.set_incident_id(None)
+                cur = db.incidents().find_one({"_id": state.get_incident_id()})
+                awaiting_human = bool(
+                    cur and cur.get("status") == "open"
+                    and (cur.get("decision") or {}).get("decision") == "hitl")
+                if not awaiting_human:
+                    events.emit("INFO", "Conditions returned to nominal — closing prior incident")
+                    db.incidents().update_one({"_id": state.get_incident_id()}, {"$set": {"status": "resolved"}})
+                    state.set_incident_id(None)
             return
         else:
             auto_shutoff_actuators(sev)  # resets streak counter
@@ -278,7 +299,11 @@ async def run_cycle(stress_test: bool = False):
                              data={"images_sent": 3, "model": "gemini-2.0-flash-001"})
         events.emit("REASON", "Calling Gemini vision with zone images + snapshot…")
         img_paths = images.image_paths_for(assessment["zone_health"])
-        vision = gemini_client.vision_assess(tele, img_paths, sev)
+        # Run the blocking Gemini call off the event loop. gemini-2.5-flash is a
+        # thinking model and can take many seconds; awaiting it inline would freeze
+        # the whole server (status/trace/approve all stop responding).
+        loop = asyncio.get_event_loop()
+        vision = await loop.run_in_executor(None, gemini_client.vision_assess, tele, img_paths, sev)
         workflow.tracker.set("vision", "done",
                              message=vision.get("root_cause", "?")[:200],
                              data={**vision,
@@ -302,7 +327,7 @@ async def run_cycle(stress_test: bool = False):
                              message="Generating mitigation plan via tool use…",
                              data={"model": "gemini-2.0-flash-001"})
         events.emit("REASON", "Generating action plan via tool use…")
-        plan = gemini_client.action_plan(tele, vision, sev)
+        plan = await loop.run_in_executor(None, gemini_client.action_plan, tele, vision, sev)
         workflow.tracker.set("action", "done",
                              message=f"{len(plan.get('steps', []))} steps · {plan.get('risk', '?')} risk",
                              data=plan)

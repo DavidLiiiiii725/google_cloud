@@ -10,8 +10,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 
-from . import db, state, events, pipeline, approve, images, seed, config, workflow
+from . import db, state, events, pipeline, approve, images, seed, config, workflow, farm_publish, coordination
 from .models import SensorInput
+from app import mcp_mongo
 
 
 @asynccontextmanager
@@ -22,12 +23,30 @@ async def lifespan(_app: FastAPI):
         seed.seed()
     images.ensure_assets()
     events.emit("INFO", "Greenhouse online — monitoring 3 zones (seedling, growing, harvest)")
+    # Publish this greenhouse's farm doc immediately so the Transport Agent sees it
+    # on startup (without waiting for the first stress event to fire).
+    try:
+        farm_publish.publish_farm(force=True)
+    except Exception as e:
+        events.emit("INFO", f"initial farm_publish failed: {e}")
+    # Spin up the MongoDB MCP bridge (Gemini -> MCP -> real mongod). Done off the
+    # event loop so a slow npx/mongod start never blocks app startup; if it fails
+    # the rest of the app keeps working and /api/mcp/status reports the error.
+    async def _start_mcp():
+        loop = asyncio.get_event_loop()
+        ok = await loop.run_in_executor(None, mcp_mongo.bridge.start)
+        if ok:
+            events.emit("INFO", f"MongoDB MCP connected — {len(mcp_mongo.bridge.tool_names())} tools available")
+        else:
+            events.emit("INFO", f"MongoDB MCP unavailable: {mcp_mongo.bridge.error}")
+    asyncio.create_task(_start_mcp())
     # background heartbeat — slow degrade/recovery loop
     task = asyncio.create_task(_heartbeat())
     try:
         yield
     finally:
         task.cancel()
+        mcp_mongo.bridge.stop()
 
 
 async def _heartbeat():
@@ -50,11 +69,25 @@ app.mount("/assets", StaticFiles(directory=str(config.ASSETS_DIR)), name="assets
 
 @app.get("/")
 def root_redirect():
-    """Convenience: serve index.html if present at project root."""
-    idx = config.ROOT / "index.html"
+    """Serve the unified app at web/index.html."""
+    idx = config.WEB_DIR / "index.html"
     if idx.exists():
         return FileResponse(str(idx))
     return {"ok": True, "service": "agent-greenhouse"}
+
+
+@app.get("/api/farm/state")
+def farm_state():
+    """Expose this greenhouse's farm doc so the UI can show what's been published."""
+    doc = db.farms().find_one({"_id": config.FARM_ID})
+    return {"farm": doc, "farm_id": config.FARM_ID, "scenario": config.SCENARIO}
+
+
+@app.post("/api/farm/publish")
+def force_publish():
+    """Manual republish — useful after editing zone health to confirm the blackboard sees it."""
+    doc = farm_publish.publish_farm(force=True)
+    return {"ok": True, "farm": doc}
 
 
 @app.post("/api/sensor")
@@ -151,6 +184,30 @@ def reset():
     return {"ok": True}
 
 
+@app.get("/api/policy")
+def get_policy():
+    """Current auto-approval policy — which severities auto-execute (no human
+    approval), confidence thresholds, countdown timeouts, and quiet hours."""
+    return {"policy": approve.get_policy(), "default": approve.DEFAULT_POLICY}
+
+
+@app.post("/api/policy")
+def set_policy(patch: dict):
+    """Update the auto-approval policy at runtime. Examples:
+      {"severity": {"critical": {"mode": "auto_immediate"}}}   # critical runs with no approval
+      {"severity": {"catastrophic": {"mode": "auto_countdown", "timeout_sec": 20}}}
+      {"quiet_hours": {"enabled": false}}                       # allow auto-execute 24/7
+    """
+    updated = approve.update_policy(patch or {})
+    events.emit("INFO", "Approval policy updated")
+    return {"ok": True, "policy": updated}
+
+
+@app.post("/api/policy/reset")
+def reset_policy():
+    return {"ok": True, "policy": approve.reset_policy()}
+
+
 @app.get("/api/stream/logs")
 async def stream_logs():
     async def gen():
@@ -164,3 +221,61 @@ def get_agent_trace():
     """Per-stage reasoning trace for the current pipeline run.
     Frontend polls this to visualise the agentic workflow live."""
     return workflow.tracker.get()
+
+
+# ---- MongoDB MCP (Phase 4): Gemini calls the MongoDB MCP server -------------- #
+@app.get("/api/mcp/status")
+def mcp_status():
+    """Is the MongoDB MCP bridge connected, and what tools did it expose?"""
+    b = mcp_mongo.bridge
+    return {
+        "ready": b.is_ready(),
+        "error": b.error,
+        "db": mcp_mongo.MONGODB_DB,
+        "model": mcp_mongo.GEMINI_MODEL,
+        "tools": b.tool_summaries() if b.is_ready() else [],
+    }
+
+
+# ---- Coordination overview: the whole Greenhouse → Transport → Merchant chain ---- #
+@app.get("/api/coordination/state")
+def coordination_state():
+    """One blackboard snapshot across all three agents for the COORDINATION tab.
+    Pure DB reads (no LLM) so the UI can poll it cheaply."""
+    return coordination.snapshot()
+
+
+@app.post("/api/coordination/narrate")
+async def coordination_narrate():
+    """Have Gemini read the shared collections via the MongoDB MCP tools and write a
+    natural-language situation report on the three-agent cascade. This is the Phase-4
+    centerpiece: one LLM, real MongoDB MCP tool calls, spanning all three agents."""
+    if not mcp_mongo.bridge.is_ready():
+        await asyncio.get_event_loop().run_in_executor(None, mcp_mongo.bridge.start)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None, lambda: mcp_mongo.bridge.gemini_query(coordination.narration_request()))
+    events.emit("REASON", f"Coordination narration → {len(result.get('trace', []))} MongoDB MCP call(s)")
+    return result
+
+
+@app.post("/api/mcp/query")
+async def mcp_query(payload: dict):
+    """Run a real Gemini function-calling loop over the MongoDB MCP tools.
+
+    Body: {"request": "<natural language>", "allow_tools": ["find", ...]?}
+    Gemini decides which MongoDB MCP tools to call; each runs against the real
+    mongod. Returns the final answer plus the tool-call trace.
+    """
+    request = (payload or {}).get("request", "").strip()
+    if not request:
+        raise HTTPException(400, "missing 'request'")
+    allow = (payload or {}).get("allow_tools")
+    if not mcp_mongo.bridge.is_ready():
+        # Last-chance lazy start so the endpoint is usable even if startup raced.
+        await asyncio.get_event_loop().run_in_executor(None, mcp_mongo.bridge.start)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None, lambda: mcp_mongo.bridge.gemini_query(request, allow_tools=allow))
+    events.emit("REASON", f"MCP query → {len(result.get('trace', []))} MongoDB tool call(s)")
+    return result

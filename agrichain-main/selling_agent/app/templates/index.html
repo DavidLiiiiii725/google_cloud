@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VendorGroove Net — Initialize</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+    body { margin: 0; background: #030712; color: #f0fdf4; overflow: hidden; }
+
+    /* Subtle grid background */
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(34,197,94,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34,197,94,0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+
+    /* ── Modal card ── */
+    .modal-card {
+      background: rgba(10, 18, 32, 0.88);
+      border: 1px solid rgba(34,197,94,0.22);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-radius: 22px;
+      box-shadow:
+        0 0 60px rgba(34,197,94,0.07),
+        0 30px 60px rgba(0,0,0,0.55),
+        inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+
+    /* ── Input ── */
+    .vendor-input {
+      background: rgba(15,30,50,0.9);
+      border: 1px solid rgba(34,197,94,0.28);
+      border-radius: 11px;
+      color: #f0fdf4;
+      padding: 14px 18px;
+      width: 100%;
+      font-size: 15px;
+      outline: none;
+      transition: border-color .25s, box-shadow .25s;
+    }
+    .vendor-input:focus {
+      border-color: #22c55e;
+      box-shadow: 0 0 0 3px rgba(34,197,94,0.14);
+    }
+    .vendor-input::placeholder { color: rgba(134,239,172,0.35); }
+
+    /* ── Button ── */
+    .init-btn {
+      background: linear-gradient(135deg, #15803d, #22c55e);
+      border: none;
+      border-radius: 11px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: .02em;
+      padding: 15px 28px;
+      width: 100%;
+      cursor: pointer;
+      transition: transform .2s, box-shadow .2s, background .2s;
+    }
+    .init-btn:hover {
+      background: linear-gradient(135deg, #22c55e, #4ade80);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 28px rgba(34,197,94,0.38);
+    }
+    .init-btn:active { transform: translateY(0); }
+
+    /* ── Radar rings ── */
+    @keyframes radar {
+      0%   { transform: scale(0.7); opacity: .9; }
+      100% { transform: scale(2.6); opacity: 0;  }
+    }
+    .radar-wrap { position: relative; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; }
+    .ring {
+      position: absolute;
+      inset: 0;
+      border: 2px solid rgba(34,197,94,0.7);
+      border-radius: 50%;
+      animation: radar 2.2s ease-out infinite;
+    }
+    .ring:nth-child(2) { animation-delay: .7s; }
+    .ring:nth-child(3) { animation-delay: 1.4s; }
+    .radar-center {
+      position: relative; z-index: 10;
+      width: 42px; height: 42px;
+      background: rgba(34,197,94,0.12);
+      border: 2px solid #22c55e;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+
+    /* ── Markers ── */
+    @keyframes markerPulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,.45); }
+      50%      { box-shadow: 0 0 0 12px rgba(34,197,94,0); }
+    }
+    .cur-marker {
+      width: 54px; height: 54px;
+      background: rgba(34,197,94,0.13);
+      border: 2.5px solid #22c55e;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 27px;
+      animation: markerPulse 2.2s infinite;
+      cursor: pointer;
+    }
+    .mock-marker {
+      width: 40px; height: 40px;
+      background: rgba(251,191,36,0.12);
+      border: 2px solid #f59e0b;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      cursor: pointer;
+    }
+
+    /* ── Leaflet popup dark theme ── */
+    .leaflet-popup-content-wrapper {
+      background: rgba(10,18,32,0.96) !important;
+      border: 1px solid rgba(34,197,94,0.28) !important;
+      border-radius: 13px !important;
+      color: #f0fdf4 !important;
+      box-shadow: 0 12px 32px rgba(0,0,0,.55) !important;
+    }
+    .leaflet-popup-tip { background: rgba(10,18,32,0.96) !important; }
+    .leaflet-popup-close-button { color: #86efac !important; font-size: 20px !important; top: 6px !important; right: 8px !important; }
+
+    /* ── HUD panels ── */
+    .hud {
+      position: fixed; z-index: 400;
+      background: rgba(10,18,32,0.82);
+      border: 1px solid rgba(34,197,94,0.18);
+      backdrop-filter: blur(12px);
+      border-radius: 13px;
+      padding: 12px 18px;
+      display: none;
+    }
+
+    /* ── Sync overlay ── */
+    #sync-overlay {
+      position: fixed; inset: 0; z-index: 600;
+      background: rgba(3,7,18,0.88);
+      backdrop-filter: blur(8px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin-cw  { animation: spin 1.6s linear infinite; }
+    .spin-ccw { animation: spin 1.1s linear infinite reverse; }
+    @keyframes syncGlow {
+      0%,100% { opacity: .6; transform: scale(1);    }
+      50%      { opacity: 1;  transform: scale(1.06); }
+    }
+    .sync-icon-wrap { animation: syncGlow 1.8s ease-in-out infinite; }
+    @keyframes dotBounce {
+      0%,100% { opacity: .3; transform: scale(.8); }
+      50%      { opacity: 1;  transform: scale(1.3); }
+    }
+    .dot { width:9px; height:9px; background:#22c55e; border-radius:50%; display:inline-block; }
+    .dot:nth-child(1) { animation: dotBounce 1.4s ease-in-out infinite; }
+    .dot:nth-child(2) { animation: dotBounce 1.4s ease-in-out .28s infinite; }
+    .dot:nth-child(3) { animation: dotBounce 1.4s ease-in-out .56s infinite; }
+
+    #status-msg { transition: opacity .2s ease; }
+
+    /* ── Fade helpers ── */
+    .fade-in { animation: fadeIn .55s ease both; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  </style>
+</head>
+<body class="grid-bg">
+
+<!-- ══════════════════════════════════════════════
+     BACKDROP + MODAL (phase 1 & 2)
+══════════════════════════════════════════════ -->
+<div id="backdrop" style="position:fixed;inset:0;background:rgba(3,7,18,0.94);backdrop-filter:blur(3px);z-index:1000;transition:opacity .75s ease;">
+  <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:1001;padding:16px;">
+
+    <!-- STEP 1 — Enter shop name -->
+    <div id="step-1" class="modal-card w-full fade-in" style="max-width:440px;padding:36px 36px 32px;">
+
+      <!-- Logo row -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:26px;">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#15803d,#22c55e);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🥦</div>
+        <div>
+          <div style="font-size:19px;font-weight:800;color:#f0fdf4;letter-spacing:-.02em;">VendorGroove</div>
+          <div style="font-size:10px;color:#86efac;letter-spacing:.12em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;">NET &nbsp;v1.0</div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:linear-gradient(90deg,rgba(34,197,94,.3),transparent);margin-bottom:28px;"></div>
+
+      <h1 style="font-size:26px;font-weight:800;color:#f0fdf4;letter-spacing:-.03em;margin:0 0 8px;">Welcome to VendorGroove!</h1>
+      <p style="color:#86efac;font-size:14px;line-height:1.65;margin:0 0 28px;">
+        Please enter your <span style="color:#22c55e;font-weight:600;">Shop Name</span> to initialize your vendor node in the neighborhood network.
+      </p>
+
+      <label style="display:block;font-size:11px;font-weight:700;color:#86efac;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Shop Name</label>
+      <input id="shop-name" type="text" class="vendor-input" placeholder="e.g. Fresh Valley Stand" maxlength="50"
+             onkeypress="if(event.key==='Enter') initVendor()" />
+
+      <p style="font-size:12px;color:rgba(134,239,172,.45);margin:10px 0 24px;line-height:1.5;">
+        📍 Location access will be requested next to place you on the vendor map.
+      </p>
+
+      <button class="init-btn" onclick="initVendor()">Initialize My Stand &nbsp;→</button>
+
+      <p style="text-align:center;font-size:11px;color:rgba(134,239,172,.28);margin-top:16px;font-family:'JetBrains Mono',monospace;">
+        Decentralized · Community-Powered · Fresh
+      </p>
+    </div>
+
+    <!-- STEP 2 — Acquiring location -->
+    <div id="step-2" class="modal-card w-full" style="max-width:380px;padding:48px 36px;text-align:center;display:none;">
+      <div class="radar-wrap" style="margin:0 auto 28px;">
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="radar-center">📡</div>
+      </div>
+      <h2 style="font-size:21px;font-weight:700;color:#f0fdf4;margin:0 0 10px;">Acquiring Location...</h2>
+      <p style="color:#86efac;font-size:14px;line-height:1.65;margin:0 0 16px;">
+        Please <strong style="color:#22c55e;">allow location access</strong> when your browser prompts you.
+      </p>
+      <p style="font-size:12px;color:rgba(134,239,172,.45);font-family:'JetBrains Mono',monospace;">Establishing vendor node position...</p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     MAP CONTAINER (phase 3)
+══════════════════════════════════════════════ -->
+<div id="map-container" style="display:none;position:fixed;inset:0;z-index:100;">
+  <div id="map" style="width:100%;height:100vh;"></div>
+
+  <!-- HUD top-left -->
+  <div class="hud" id="hud-vendor" style="top:20px;left:20px;">
+    <div style="font-size:10px;color:#86efac;letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px;font-family:'JetBrains Mono',monospace;">Active Vendor Node</div>
+    <div id="hud-name" style="font-size:16px;font-weight:700;color:#f0fdf4;"></div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:5px;">
+      <div style="width:6px;height:6px;background:#22c55e;border-radius:50%;animation:markerPulse 2s infinite;"></div>
+      <span style="font-size:12px;color:#22c55e;font-weight:500;">Online</span>
+    </div>
+  </div>
+
+  <!-- HUD top-right -->
+  <div class="hud" id="hud-stats" style="top:20px;right:20px;text-align:right;">
+    <div style="font-size:10px;color:#86efac;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;font-family:'JetBrains Mono',monospace;">Network Status</div>
+    <div style="font-size:13px;color:rgba(134,239,172,.65);margin-bottom:4px;">Nearby Vendors &nbsp;<span style="color:#f0fdf4;font-weight:700;">5</span></div>
+    <div style="font-size:13px;color:rgba(134,239,172,.65);margin-bottom:4px;">Supply Score &nbsp;<span style="color:#22c55e;font-weight:700;">87/100</span></div>
+    <div style="font-size:13px;color:rgba(134,239,172,.65);">Network &nbsp;<span style="color:#22c55e;font-weight:700;">ACTIVE</span></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SYNC OVERLAY (phase 4)
+══════════════════════════════════════════════ -->
+<div id="sync-overlay">
+  <div class="sync-icon-wrap" style="position:relative;width:110px;height:110px;display:flex;align-items:center;justify-content:center;margin-bottom:32px;">
+    <div class="spin-cw"  style="position:absolute;inset:0;border:2.5px solid transparent;border-top-color:#22c55e;border-radius:50%;"></div>
+    <div class="spin-ccw" style="position:absolute;inset:12px;border:2px solid transparent;border-bottom-color:#86efac;border-radius:50%;"></div>
+    <div style="font-size:40px;position:relative;z-index:1;">🌐</div>
+  </div>
+
+  <h2 style="font-size:24px;font-weight:800;color:#f0fdf4;letter-spacing:-.03em;margin:0 0 10px;text-align:center;">
+    Data Sharing in Progress...
+  </h2>
+  <p style="font-size:15px;color:#86efac;margin:0 0 24px;text-align:center;line-height:1.6;">
+    Optimizing your local network supply chain.
+  </p>
+
+  <div style="display:flex;gap:10px;margin-bottom:22px;">
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+  </div>
+
+  <div id="status-msg" style="font-size:12px;color:rgba(134,239,172,.55);font-family:'JetBrains Mono',monospace;min-height:20px;text-align:center;"></div>
+</div>
+
+<script>
+  /* ── State ── */
+  let shopName = '';
+  let loc = null;
+  let msgIdx = 0;
+
+  const STATUS = [
+    '> Scanning local vendor nodes...',
+    '> Mapping supply routes...',
+    '> Syncing inventory metadata...',
+    '> Calculating network proximity scores...',
+    '> Initializing dashboard workspace...',
+  ];
+
+  const MOCK_VENDORS = [
+    { name: 'Green Leaf Market',     emoji: '🥕', dx:  0.0022, dy:  0.0031 },
+    { name: 'Sunny Fresh Produce',   emoji: '🍅', dx: -0.0031, dy:  0.0014 },
+    { name: 'Valley Garden Stand',   emoji: '🥦', dx:  0.0012, dy: -0.0041 },
+    { name: 'Farm Direct Corner',    emoji: '🥑', dx: -0.0019, dy: -0.0027 },
+    { name: 'Harvest Hub Express',   emoji: '🌽', dx:  0.0043, dy: -0.0012 },
+  ];
+
+  /* ── Step 1: validate & move to step 2 ── */
+  function initVendor() {
+    const inp = document.getElementById('shop-name');
+    shopName = inp.value.trim();
+    if (!shopName) {
+      inp.style.borderColor = '#ef4444';
+      inp.style.boxShadow = '0 0 0 3px rgba(239,68,68,.15)';
+      inp.placeholder = 'Shop name is required!';
+      setTimeout(() => {
+        inp.style.borderColor = 'rgba(34,197,94,0.28)';
+        inp.style.boxShadow = 'none';
+        inp.placeholder = 'e.g. Fresh Valley Stand';
+      }, 2200);
+      return;
+    }
+    document.getElementById('step-1').style.display = 'none';
+    document.getElementById('step-2').style.display = 'block';
+    requestLocation();
+  }
+
+  /* ── Step 2: geolocation ── */
+  function requestLocation() {
+    if (!navigator.geolocation) { useFallback(); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => { loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }; proceed(); },
+      ()  => useFallback(),
+      { timeout: 12000, enableHighAccuracy: true }
+    );
+  }
+
+  function useFallback() {
+    /* Default to New York City for demo purposes */
+    loc = { lat: 40.7128, lng: -74.0060 };
+    proceed();
+  }
+
+  /* ── Transition: backdrop → map ── */
+  function proceed() {
+    sessionStorage.setItem('vg_name', shopName);
+    sessionStorage.setItem('vg_lat',  loc.lat);
+    sessionStorage.setItem('vg_lng',  loc.lng);
+
+    /* Register vendor (fire-and-forget) */
+    fetch('/api/vendors/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shop_name: shopName, location: { type: 'Point', coordinates: [loc.lng, loc.lat] } })
+    }).catch(console.error);
+
+    const bd = document.getElementById('backdrop');
+    bd.style.opacity = '0';
+    setTimeout(() => {
+      bd.style.display = 'none';
+      document.getElementById('map-container').style.display = 'block';
+      initMap();
+    }, 750);
+  }
+
+  /* ── Step 3: render map ── */
+  function initMap() {
+    const map = L.map('map', { zoomControl: false }).setView([loc.lat, loc.lng], 15);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd', maxZoom: 19
+    }).addTo(map);
+
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    /* Current vendor marker */
+    const curIcon = L.divIcon({
+      html: '<div class="cur-marker">🥬</div>',
+      className: '', iconSize: [54,54], iconAnchor: [27,27], popupAnchor: [0,-30]
+    });
+    L.marker([loc.lat, loc.lng], { icon: curIcon }).addTo(map)
+      .bindPopup(`
+        <div style="padding:4px 2px;">
+          <div style="font-weight:700;font-size:15px;color:#f0fdf4;margin-bottom:5px;">🥬 ${shopName}</div>
+          <div style="font-size:12px;color:#22c55e;">📍 Your Stand — Active Node</div>
+          <div style="font-size:11px;color:rgba(134,239,172,.5);margin-top:5px;font-family:monospace;">
+            ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}
+          </div>
+        </div>`)
+      .openPopup();
+
+    /* Mock nearby vendors */
+    MOCK_VENDORS.forEach(v => {
+      const ico = L.divIcon({
+        html: `<div class="mock-marker">${v.emoji}</div>`,
+        className: '', iconSize: [40,40], iconAnchor: [20,20], popupAnchor: [0,-22]
+      });
+      const dist = (Math.random() * 0.35 + 0.08).toFixed(1);
+      L.marker([loc.lat + v.dx, loc.lng + v.dy], { icon: ico }).addTo(map)
+        .bindPopup(`
+          <div style="padding:4px 2px;">
+            <div style="font-weight:700;font-size:15px;color:#f0fdf4;margin-bottom:5px;">${v.emoji} ${v.name}</div>
+            <div style="font-size:12px;color:#f59e0b;">📍 Nearby Vendor Node</div>
+            <div style="font-size:11px;color:rgba(251,191,36,.5);margin-top:5px;">~${dist} mi away</div>
+          </div>`);
+    });
+
+    /* Show HUDs */
+    document.getElementById('hud-name').textContent = shopName;
+    document.getElementById('hud-vendor').style.display = 'block';
+    document.getElementById('hud-stats').style.display  = 'block';
+
+    /* Show sync overlay after brief map view */
+    setTimeout(showSync, 1000);
+  }
+
+  /* ── Step 4: sync animation then redirect ── */
+  function showSync() {
+    const overlay = document.getElementById('sync-overlay');
+    const msgEl   = document.getElementById('status-msg');
+    overlay.style.display = 'flex';
+    msgEl.textContent = STATUS[0];
+
+    const iv = setInterval(() => {
+      msgIdx = (msgIdx + 1) % STATUS.length;
+      msgEl.style.opacity = '0';
+      setTimeout(() => { msgEl.textContent = STATUS[msgIdx]; msgEl.style.opacity = '1'; }, 220);
+    }, 650);
+
+    setTimeout(() => {
+      clearInterval(iv);
+      document.body.style.transition = 'opacity .8s ease';
+      document.body.style.opacity    = '0';
+      setTimeout(() => { window.location.href = '/dashboard'; }, 800);
+    }, 3800);
+  }
+</script>
+</body>
+</html>

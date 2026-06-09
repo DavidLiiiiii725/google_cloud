@@ -44,13 +44,21 @@ class _MemoryCollection:
         r = self.find(query, sort=sort, limit=1)
         return r[0] if r else None
 
-    def update_one(self, query: dict, update: dict):
+    def update_one(self, query: dict, update: dict, upsert: bool = False):
         with self._lock:
             for d in self._docs:
                 if all(d.get(k) == v for k, v in query.items()):
                     if "$set" in update:
                         d.update(update["$set"])
                     return type("R", (), {"matched_count": 1, "modified_count": 1})()
+            if upsert:
+                new = dict(query)
+                if "$set" in update:
+                    new.update(update["$set"])
+                self._counter += 1
+                new.setdefault("_id", f"{self.name}-{self._counter}")
+                self._docs.append(new)
+                return type("R", (), {"matched_count": 0, "modified_count": 0, "upserted_id": new["_id"]})()
         return type("R", (), {"matched_count": 0, "modified_count": 0})()
 
     def count_documents(self, query: dict | None = None) -> int:
@@ -83,6 +91,30 @@ class _MemoryDB:
             return self._cols[name]
 
 
+class _ListFindCollection:
+    """Wraps a real pymongo Collection so ``find()`` returns a list instead of a
+    Cursor. The whole codebase was written against the in-memory store above (whose
+    find returns a list — it indexes p[0], calls reversed(), iterates twice, etc.),
+    so this keeps real MongoDB behaving identically. Everything else (find_one,
+    count_documents, insert_*, update_one, aggregate, ...) passes straight through."""
+    def __init__(self, col):
+        self._col = col
+
+    def find(self, *args, **kwargs):
+        return list(self._col.find(*args, **kwargs))
+
+    def __getattr__(self, name):
+        return getattr(self._col, name)
+
+
+class _ListFindDB:
+    def __init__(self, database):
+        self._database = database
+
+    def __getitem__(self, name):
+        return _ListFindCollection(self._database[name])
+
+
 _db = None
 _mode = "uninitialized"
 
@@ -95,9 +127,9 @@ def get_db():
         try:
             client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=4000)
             client.admin.command("ping")
-            _db = client[config.MONGODB_DB]
-            _mode = "atlas"
-            print(f"[db] connected to MongoDB Atlas — db={config.MONGODB_DB}")
+            _db = _ListFindDB(client[config.MONGODB_DB])
+            _mode = "mongodb"
+            print(f"[db] connected to MongoDB — db={config.MONGODB_DB}")
             return _db
         except PyMongoError as e:
             print(f"[db] Atlas connect failed: {e}. Falling back to in-memory store.")
@@ -130,3 +162,27 @@ def agent_logs():
 
 def actuators():
     return get_db()["actuators"]
+
+
+# ---- Supply-chain collections (the blackboard, shared with Transport Agent) ----
+# The greenhouse upserts its farm doc here so the Transport Agent can read it.
+# Both services use the SAME MONGODB_URI / MONGODB_DB so these reads/writes line up.
+def farms():
+    return get_db()["farms"]
+
+
+def transport_plans():
+    return get_db()["transport_plans"]
+
+
+def world_events():
+    return get_db()["world_events"]
+
+
+# Written by the Merchant Agent; read here only for the coordination overview.
+def market_orders():
+    return get_db()["market_orders"]
+
+
+def buyers():
+    return get_db()["buyers"]

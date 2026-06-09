@@ -1,9 +1,20 @@
+# Unified deps for the whole Agent Farm system. One venv runs all three services
+# (greenhouse on 8000, transport on 8001, optimizer on 8080).
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pymongo==4.10.1
 python-dotenv==1.0.1
+sse-starlette==2.1.3
+pydantic==2.10.3
+
+# Greenhouse — Gemini vision + image placeholders + GCS
 google-genai==0.3.0
 google-cloud-storage==2.18.2
-pydantic==2.10.3
 Pillow==11.0.0
-sse-starlette==2.1.3
+
+# MongoDB MCP bridge — Gemini calls the MongoDB MCP server (stdio) which does the
+# real DB I/O. Needs Node/npx on PATH for `mongodb-mcp-server`.
+mcp>=1.12.0
+
+# Optimizer — OR-Tools CVRP solver (heavy native deps; needs MSVC++ on Windows)
+ortools>=9.11

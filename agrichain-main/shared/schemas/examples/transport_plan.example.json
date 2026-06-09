@@ -1,0 +1,42 @@
+{
+  "_id": "plan-7f3a9c",
+  "scenario_id": "default",
+  "status": "committed",
+  "replan_of": null,
+  "trigger": "initial",
+  "world_event_id": null,
+  "vehicles": [
+    {
+      "vehicle_id": "veh-refrig-01", "capacity_kg": 1200, "capacity_l": 1400,
+      "refrigerated": true, "load_class": "refrigerated",
+      "stops": [
+        { "seq": 0, "farm_id": "farm-eldoret-01", "eta": 1749650400,
+          "pickups": [ { "sku": "avocado-crate", "quantity_kg": 540 } ] }
+      ]
+    },
+    {
+      "vehicle_id": "veh-ambient-01", "capacity_kg": 1000, "capacity_l": 1200,
+      "refrigerated": false, "load_class": "ambient",
+      "stops": [
+        { "seq": 0, "farm_id": "farm-eldoret-01", "eta": 1749650400,
+          "pickups": [ { "sku": "tomato-loose", "quantity_kg": 320 } ] }
+      ]
+    }
+  ],
+  "unrouted": [],
+  "cost": { "total_cents": 41800, "fixed_cents": 30000, "distance_cents": 9800, "refrigeration_cents": 2000 },
+  "reasoning": {
+    "compatibility_groups": [
+      { "group": "cold", "skus": ["avocado-crate"], "rule": "refrigerated kept separate from ambient" },
+      { "group": "ambient-fragile", "skus": ["tomato-loose"], "rule": "loose fragile not stacked under crates" }
+    ],
+    "objective": "minimize fixed + distance cost subject to capacity, cold-chain, fragility, time windows",
+    "sanity_checks": [
+      { "check": "no perishable past deadline", "passed": true, "note": "all ETAs before deadline_at" },
+      { "check": "no near-empty extra vehicle", "passed": true, "note": "both vehicles >40% utilized" }
+    ],
+    "replan_diff": null
+  },
+  "updated_at": 1749649000.0,
+  "updated_by": "transport"
+}

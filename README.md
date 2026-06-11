@@ -2,7 +2,10 @@
 
 **Three cooperating agents — Greenhouse, Transport, Merchant — sharing one MongoDB
 blackboard.** No agent calls another in process; each reads the documents it depends on
-and writes its own. Gemini does the reasoning, MongoDB is the shared state.
+and writes its own. Gemini does the reasoning, MongoDB is the shared state, accessed
+through the MongoDB MCP server.
+
+🔗 **Live demo:** https://agent-farm-582643636508.us-central1.run.app
 
 - **Greenhouse Agent** monitors a pixel-art greenhouse and publishes its harvestable
   yield as a `farms` document.
@@ -44,50 +47,94 @@ MongoDB-MCP situation report narrates the whole chain.
     🏪 MARKET       — buyer demand book + allocation table + scarcity pricing
 ```
 
+## Tech stack
+
+- **Gemini** (via **Vertex AI**) — agent reasoning, plant-health vision, situation report
+- **MongoDB Atlas** — the shared blackboard, accessed through the **MongoDB MCP server**
+- **Google OR-Tools** — vehicle-routing optimization
+- **FastAPI** services + a vanilla HTML5-canvas frontend, deployed on **Google Cloud Run**
+
+## Requirements
+
+- **Python 3.12** (the pinned dependencies — pydantic-core, Pillow, OR-Tools — ship
+  prebuilt wheels for 3.12; newer Python versions may try to build from source and fail)
+- **Node.js 18+** (the MongoDB MCP server runs via `npx mongodb-mcp-server`)
+- A **MongoDB Atlas** cluster (connection string)
+- A **Google Cloud project** with Vertex AI enabled (for Gemini)
+
 ## Setup
 
 ```powershell
-# 1. Create venv & install deps (one-time)
-python -m venv .venv
+# 1. Create venv with Python 3.12 & install deps
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# 2. (Optional but recommended) Sign in for Vertex AI / Gemini calls
+# 2. Authenticate for Vertex AI / Gemini (uses your own GCP project)
 gcloud auth application-default login
-gcloud config set project centered-radio-497405-u9
+gcloud config set project YOUR_GCP_PROJECT_ID
 
-# 3. Copy .env.example to .env and fill in MONGODB_URI
+# 3. Copy the env template and fill in your values
 copy .env.example .env
-#  - With MONGODB_URI set, both agents share state through Atlas (the blackboard).
-#  - With it unset, each process uses its own in-memory store — UI still works
-#    inside each tab, but the cascade doesn't bridge processes.
 ```
+
+Then edit `.env` with your own values (see `.env.example` for the full list). The key ones:
+
+```
+MONGODB_URI=<your Atlas connection string>     # the shared blackboard
+MONGODB_DB=agent_greenhouse
+GCP_PROJECT=YOUR_GCP_PROJECT_ID               # for Gemini via Vertex
+GCP_REGION=us-central1
+GEMINI_MODEL=gemini-2.5-flash
+GOOGLE_GENAI_USE_VERTEXAI=true
+GOOGLE_CLOUD_PROJECT=<your GCP project id>
+GOOGLE_CLOUD_LOCATION=us-central1
+```
+
+> **Note:** with `MONGODB_URI` set, all agents share state through Atlas (the blackboard
+> the cascade depends on). Without it, each process falls back to an in-memory store — the
+> UI still works inside each tab, but the cascade won't bridge across processes.
 
 ## Run
 
+Start the four services, each in its own terminal (venv activated). They connect to the
+Atlas cluster from your `.env`:
+
 ```powershell
-.\run.ps1
+python -m uvicorn optimizer.main:app --port 8080
+```
+```powershell
+$env:OPTIMIZER_URL="http://localhost:8080"
+python -m uvicorn app.transport.main:app --port 8001
+```
+```powershell
+python -m uvicorn app.merchant.main:app --port 8002
+```
+```powershell
+python -m uvicorn app.greenhouse.main:app --port 8000
 ```
 
-This opens three background windows (optimizer + transport + merchant) and runs the
-greenhouse in the foreground. Open **[http://localhost:8000](http://localhost:8000)** in a browser — the
-unified UI loads on the Greenhouse tab. Click `🛰️ COORDINATION` to watch all three
-agents, or `🚛 LOGISTICS` / `🏪 MARKET` for each agent in detail.
+Then open **http://localhost:8000** — the unified UI loads on the Greenhouse tab. Click
+`🛰️ COORDINATION` to watch all three agents, or `🚛 LOGISTICS` / `🏪 MARKET` for each in detail.
+
+> The included `run.ps1` / `run.bat` scripts start a **local** mongod instead of Atlas and
+> are intended for offline development. For Atlas (the deployed configuration), run the
+> services directly as shown above.
 
 ## Demo flow
 
 1. **Greenhouse tab** — drag temperature to 44 °C, humidity to 22%. Plants wilt,
-  incident pipeline fires, plan auto-approves, actuators recover the scene.
+   the incident pipeline fires, the plan auto-approves, actuators recover the scene.
    Behind the scenes, every cycle the Greenhouse upserts its `farms` doc with the
    live yield (scaled by harvest-zone health).
 2. **Logistics tab** — see all farms on the blackboard. The greenhouse's farm
-  shows up flagged with `▣` and is highlighted on the map in cyan. Click
+   shows up flagged with `▣` and is highlighted on the map in cyan. Click
    `BUILD PLAN` to consolidate them into multi-stop routes.
 3. **Market tab** — the Merchant Agent has already allocated the routed supply across
    four buyers (hospital → school → market → exporter). See per-buyer fill rates, the
    allocation/pricing table, and a Gemini-written rationale.
 4. **⚡ FIRE STORM** (Logistics tab) — writes an active `world_events` doc, blocks
-  two peer farms, drops yields. The Greenhouse Agent reads the event and republishes a
+   two peer farms, drops yields. The Greenhouse Agent reads the event and republishes a
    reduced farm doc; the Transport Agent re-plans; **the Merchant Agent auto-reallocates**
    (it watches the blackboard) — fill rate falls, essentials are protected, scarce crops
    get re-priced. The before/after diffs in both Logistics and Market are the headline.
@@ -115,7 +162,24 @@ shared/schemas/ JSON schemas for the blackboard contracts (incl. market_orders)
 web/            unified UI (one index.html: Coordination + Greenhouse + Logistics + Market)
 assets/         pixel-art plant images
 docs/           greenhouse_change.md, transport_setup.md (design notes)
+Dockerfile      Cloud Run container (all services + nginx + Node for the MCP server)
+deploy/         nginx.conf + start.sh used by the container
 ```
+
+## Deployment (Google Cloud Run)
+
+The app deploys as a single Cloud Run service (all four services + nginx in one
+container; the MCP server runs via Node inside it). Configuration is passed as
+environment variables (see `.env.example` for the list).
+
+```powershell
+gcloud run deploy agent-farm --source . --region us-central1 `
+  --allow-unauthenticated --port 8080 --memory 2Gi --timeout 3600 `
+  --env-vars-file env.yaml
+```
+
+The Cloud Run service account needs the **Vertex AI User** role, and the Atlas cluster's
+Network Access must allow connections from anywhere (`0.0.0.0/0`) so the container can reach it.
 
 ## API surface
 
@@ -153,3 +217,6 @@ Plus the cross-agent coordination layer (served by 8000):
 - `POST /solve` — called by the Transport Agent; takes a CVRP problem, returns routes
 - `GET  /health`
 
+## License
+
+MIT — see [LICENSE](LICENSE).
